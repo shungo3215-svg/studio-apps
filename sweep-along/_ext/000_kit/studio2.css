@@ -1,0 +1,632 @@
+@import url("studio-tokens.css");
+/* studio2.css — Studio ツールUIのv2スキン（006_ツールの規格 §6）
+   正典 = 135_放射パターン/src/index-v2.html（v2.1）。そこから機械的に抽出した。
+   セレクタは135のまま（改名しない）＝135が生きた見本になり、転換が機械作業で済む。
+
+   ■ studio.css（旧スキン）とは別物。両方を同時に読み込まない。
+     既存12PJは studio.css のまま凍結し、v2へ転換したツールだけがこのファイルを読む。
+   ■ 依存ゼロ。Noto Sans JP はローカル指定（CDN禁止・グローバルCLAUDE.md §2）。
+   ■ 正式対応幅は 1024px 以上。未満は末尾のmedia queryで縮退表示。
+
+   使い方:
+     <link rel="stylesheet" href="../000_kit/studio2.css">
+     <body> 直下に <header id="bar">（Studio.appBar が生成）
+                    <div id="main"><div id="stage">…</div><aside id="panel">…</aside></div>
+                    <div id="toast">（Studio.toast が生成）
+*/
+
+/* ── Serendie Design System / design token (asagi ・ konjo-dark) ───────── */
+:root{
+  --surface:#FFFFFF;
+  --surfaceContainer:#FAFAFA;
+  --surfaceContainerDim:#F5F5F5;
+  --surfaceDim:#F0F0F0;
+  --onSurface:#000000;
+  --onSurfaceVariant:#6F6F6F;
+  --outline:#D1D0CD;
+  --outlineBright:#E4E4E3;
+  --outlineDim:#8C8B87;
+  --primary:#006066;
+  --onPrimary:#FFFFFF;
+  --hovered:#0000000D;
+  --disabled:#F0F0F0;
+
+  --sp-2xs:4px; --sp-xs:8px; --sp-s:12px; --sp-m:16px; --sp-l:20px; --sp-xl:24px;
+  --r-xs:2px; --r-s:4px; --r-m:8px; --r-full:9999px;
+  --bd:1px;
+
+  --pad:16px;
+
+  --font:"Noto Sans JP",-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+[data-theme="dark"]{
+  --surface:#141414;
+  --surfaceContainer:#2E2E2E;
+  --surfaceContainerDim:#474747;
+  --surfaceDim:#141414;
+  --onSurface:#E4E4E3;
+  --onSurfaceVariant:#B1B0AE;
+  --outline:#575757;
+  --outlineBright:#424242;
+  --outlineDim:#8C8B87;
+  --primary:#C0CFFD;
+  --onPrimary:#000000;
+  --hovered:#FFFFFF0D;
+  --disabled:#31312F;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--surfaceDim);color:var(--onSurface);
+  font:400 13px/1.6 var(--font);
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:var(--r-xs)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* ── app bar（書き出しはここに集約） ──────────────────────────────── */
+#bar{
+  height:52px;display:flex;align-items:center;gap:var(--sp-s);
+  padding:0 var(--sp-m);background:var(--surface);
+  border-bottom:var(--bd) solid var(--outline);
+}
+#bar .name{font:700 14px/1.6 var(--font);white-space:nowrap}
+#bar .sub{font:400 12px/1 var(--font);color:var(--onSurfaceVariant);white-space:nowrap}
+#bar .fill{flex:1}
+#bar .baropts{display:contents}
+#bar .baropts-toggle{display:none}
+#bar .baropts-badge{font:400 11px/1 var(--font);color:var(--onSurfaceVariant);margin-left:4px}
+#bar .sep{width:var(--bd);height:24px;background:var(--outline);flex:0 0 auto}
+.btn{
+  height:32px;padding:0 var(--sp-s);border-radius:var(--r-s);
+  border:var(--bd) solid var(--outline);background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--font);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:hover{background:var(--hovered)}
+.btn.primary{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.btn.primary:hover{opacity:.88}
+.btn kbd{font:400 10px/1 var(--mono);color:var(--onSurfaceVariant);border:var(--bd) solid var(--outline);border-radius:var(--r-xs);padding:2px 3px}
+.btn.primary kbd{color:var(--onPrimary);border-color:currentColor;opacity:.7}
+#memo{
+  width:190px;height:32px;padding:0 var(--sp-xs);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);
+  background:var(--surface);color:var(--onSurface);font:400 12px/1 var(--font);
+}
+#memo:focus{border-color:var(--primary);outline-offset:0}
+.caprow{display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+.caprow input{width:15px;height:15px;accent-color:var(--primary);margin:0}
+.caprow span{font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant)}
+
+/* ── layout ──────────────────────────────────────────────────────────── */
+#main{display:flex;height:calc(100vh - 52px)}
+#stage{flex:1;display:flex;align-items:center;justify-content:center;padding:var(--sp-l);min-width:0}
+#board{border:var(--bd) solid var(--outline);border-radius:var(--r-xs);overflow:hidden;line-height:0}
+#cv{display:block}
+
+#panel{
+  width:308px;flex:0 0 308px;background:var(--surface);
+  border-left:var(--bd) solid var(--outline);overflow-y:auto;overscroll-behavior:contain;
+}
+#panel::-webkit-scrollbar{width:10px}
+#panel::-webkit-scrollbar-thumb{background:var(--outlineBright);border-radius:var(--r-full);border:3px solid var(--surface)}
+
+/* ── section ─────────────────────────────────────────────────────────── */
+.sec{padding:var(--pad) var(--sp-m);border-bottom:var(--bd) solid var(--outlineBright)}
+.sec > h2{font:700 11px/1 var(--font);color:var(--onSurfaceVariant);margin-bottom:var(--sp-xs);letter-spacing:.08em}
+
+/* preset chips */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  height:28px;padding:0 10px;border-radius:var(--r-full);
+  border:var(--bd) solid var(--outline);background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--font);cursor:pointer;
+}
+.chip:hover{background:var(--hovered)}
+.chip[aria-pressed="true"]{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+
+/* control row */
+.f{margin-bottom:var(--pad)}
+.f:last-child{margin-bottom:0}
+.f.off{display:none}
+.f .top{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-xs)}
+.f label{font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant);cursor:ew-resize;user-select:none}
+.f .num{display:flex;align-items:center;gap:3px}
+.f input.n{
+  width:64px;height:28px;text-align:right;
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);
+  background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--mono);font-variant-numeric:tabular-nums;
+  padding:0 5px;
+}
+.f input.n:focus{border-color:var(--primary);outline-offset:0}
+.f .unit{font:400 11px/1 var(--font);color:var(--onSurfaceVariant);width:14px}
+
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;cursor:pointer;display:block}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--outline);border-radius:var(--r-full)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:var(--r-full);
+  background:var(--primary);border:none;margin-top:-5.5px;
+}
+input[type=range]::-moz-range-track{height:2px;background:var(--outline);border-radius:var(--r-full)}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:var(--r-full);background:var(--primary)}
+
+select{
+  width:100%;height:30px;padding:0 var(--sp-xs);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);
+  background:var(--surface);color:var(--onSurface);font:400 12px/1 var(--font);cursor:pointer;
+}
+select:focus{border-color:var(--primary);outline-offset:0}
+
+/* 色 — 塗り／線／背景のどれに効かせるかを選ぶ（イラレの塗りと線の切り替えと同じ考え方） */
+.targets{display:flex;gap:6px}
+.targets button{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:8px 4px;border-radius:var(--r-s);cursor:pointer;
+  border:var(--bd) solid var(--outline);background:var(--surface);
+}
+.targets button:hover{background:var(--hovered)}
+.targets button[aria-pressed="true"]{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
+.targets .chipcol{
+  width:100%;height:26px;border-radius:var(--r-xs);
+  border:var(--bd) solid var(--outline);
+  background-image:linear-gradient(45deg,#0000000f 25%,transparent 25%,transparent 75%,#0000000f 75%),
+                   linear-gradient(45deg,#0000000f 25%,transparent 25%,transparent 75%,#0000000f 75%);
+  background-size:8px 8px;background-position:0 0,4px 4px;
+}
+.targets .chipcol span{display:block;width:100%;height:100%;border-radius:1px}
+.targets .nm{font:400 11px/1 var(--font);color:var(--onSurfaceVariant)}
+.targets button[aria-pressed="true"] .nm{color:var(--onSurface);font-weight:700}
+
+.editrow{display:flex;align-items:center;gap:var(--sp-xs);margin-top:var(--sp-xs)}
+.editrow input[type=color]{
+  width:56px;height:28px;padding:2px;cursor:pointer;background:var(--surface);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);flex:0 0 56px;
+}
+.editrow .none{
+  height:28px;padding:0 var(--sp-s);border-radius:var(--r-s);
+  border:var(--bd) solid var(--outline);background:var(--surface);color:var(--onSurfaceVariant);
+  font:400 12px/1 var(--font);cursor:pointer;
+}
+.editrow .none[aria-pressed="true"]{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.editrow .hex{font:400 11px/1 var(--mono);color:var(--onSurfaceVariant);flex:1;text-align:right}
+
+/* 規定パレット */
+.palrow{display:flex;gap:6px;align-items:center;margin-bottom:var(--sp-xs)}
+.palrow select{flex:1}
+.swatches{display:flex;flex-wrap:wrap;gap:5px}
+.swatches button{
+  width:26px;height:26px;border-radius:var(--r-xs);border:var(--bd) solid var(--outline);
+  cursor:pointer;padding:0;
+}
+.swatches button:hover{outline:2px solid var(--primary);outline-offset:1px}
+.hint{font:400 11px/1.5 var(--font);color:var(--onSurfaceVariant);margin-top:var(--sp-xs)}
+
+/* readout */
+#info{padding:var(--pad) var(--sp-m);background:var(--surfaceContainer);border-bottom:var(--bd) solid var(--outlineBright)}
+#info dl{display:grid;grid-template-columns:1fr auto;gap:2px var(--sp-s)}
+#info dt{font:400 11px/1.5 var(--font);color:var(--onSurfaceVariant)}
+#info dd{font:400 11px/1.5 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+
+/* toast */
+#toast{
+  position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);
+  padding:10px var(--sp-m);border-radius:var(--r-s);
+  background:var(--onSurface);color:var(--surface);
+  font:400 12px/1 var(--mono);opacity:0;pointer-events:none;display:flex;align-items:center;gap:var(--sp-s);max-width:min(640px,calc(100vw - 32px));line-height:1.5;transition:opacity .16s,transform .16s;
+}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.sticky{pointer-events:auto}
+#toast.err{background:var(--error,#B3261E);color:#fff}
+#toast .toast-close{font:400 11px/1 var(--font);color:inherit;background:transparent;border:1px solid currentColor;border-radius:var(--r-xs);padding:3px 7px;cursor:pointer;white-space:nowrap}
+
+/* 正式対応幅は 1024px 以上（006 §6・2026-08-12 決定）。
+   それ未満は縮退表示: パネルを下へ積み、バーは折り返す（仕切り線は消す） */
+@media (max-width:1023px){
+  body{overflow:auto}
+  #main{flex-direction:column;height:auto}
+  #panel{width:100%;flex:none;border-left:none;border-top:var(--bd) solid var(--outline)}
+  #stage{padding:var(--sp-m)}
+  #bar{flex-wrap:wrap;height:auto;min-height:52px;padding:var(--sp-xs) var(--sp-s);row-gap:var(--sp-2xs)}
+  #bar .sep{display:none}
+  #memo{width:120px}
+  #bar .baropts{display:none;flex-basis:100%;align-items:center;gap:var(--sp-s)}
+  #bar.opts-open .baropts{display:flex}
+  #bar .baropts-toggle{display:inline-flex}
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   kitパネル部品（.sk-*）のv2スキン
+   Studio.panel が生成する行を、135の手書き行（.f / .targets / .swatches）と
+   同じ見た目に揃える。studio.css の .sk-* 定義は読まない前提の完全版。
+   ══════════════════════════════════════════════════════════════════════ */
+.studio-panel{padding:0}
+.sk-grp{padding:var(--pad) var(--sp-m);border-bottom:var(--bd) solid var(--outlineBright)}
+.sk-grp-ttl{display:flex;align-items:center;gap:6px;width:100%;text-align:left;background:none;border:0;padding:0;cursor:pointer;font:700 11px/1 var(--font);color:var(--onSurfaceVariant);letter-spacing:.08em;margin-bottom:var(--sp-xs)}
+.sk-grp-ttl::before{content:'▾';font-size:9px;opacity:.5;transition:transform .15s}
+.sk-grp.closed>.sk-grp-ttl::before{transform:rotate(-90deg)}
+.sk-grp.closed>.sk-grp-ttl{margin-bottom:0}
+.sk-grp.closed>*:not(.sk-grp-ttl){display:none}
+
+.sk-row{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--pad)}
+.sk-row:last-child{margin-bottom:0}
+.sk-rowhead{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-xs)}
+.sk-label{font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant);cursor:ew-resize;user-select:none}
+.sk-numwrap{display:flex;align-items:center;gap:3px}
+.sk-num{
+  width:64px;height:28px;text-align:right;padding:0 5px;
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);
+  background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--mono);font-variant-numeric:tabular-nums;
+}
+.sk-num:focus{border-color:var(--primary);outline-offset:0}
+.sk-num.sk-wide{width:112px}
+.sk-unit{font:400 11px/1 var(--font);color:var(--onSurfaceVariant);width:14px}
+.sk-val{font:400 12px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--onSurface)}
+
+/* colorset（対象チップ方式・§5）— 135の .targets / .editrow / .swatches と同じ見た目 */
+.sk-colorset{gap:var(--sp-xs)}
+.sk-targets{display:flex;gap:6px}
+.sk-targets button{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:8px 4px;border-radius:var(--r-s);cursor:pointer;
+  border:var(--bd) solid var(--outline);background:var(--surface);
+}
+.sk-targets button:hover{background:var(--hovered)}
+.sk-targets button[aria-pressed="true"]{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
+.sk-chipcol{
+  width:100%;height:26px;border-radius:var(--r-xs);border:var(--bd) solid var(--outline);
+  background-image:linear-gradient(45deg,#0000000f 25%,transparent 25%,transparent 75%,#0000000f 75%),
+                   linear-gradient(45deg,#0000000f 25%,transparent 25%,transparent 75%,#0000000f 75%);
+  background-size:8px 8px;background-position:0 0,4px 4px;
+}
+.sk-chipsw{display:block;width:100%;height:100%;border-radius:1px}
+.sk-chipnm{font:400 11px/1 var(--font);color:var(--onSurfaceVariant)}
+.sk-targets button[aria-pressed="true"] .sk-chipnm{color:var(--onSurface);font-weight:700}
+.sk-editrow{display:flex;align-items:center;gap:var(--sp-xs);margin-top:var(--sp-xs)}
+.sk-editrow input[type=color]{
+  width:56px;height:28px;padding:2px;cursor:pointer;background:var(--surface);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);flex:0 0 56px;
+}
+.sk-hex{font:400 11px/1 var(--mono);color:var(--onSurface);flex:1;min-width:0;text-align:right;height:28px;padding:0 6px;border:var(--bd) solid var(--outline);border-radius:var(--r-s);background:var(--surface)}
+.sk-hex:focus{border-color:var(--primary);outline-offset:0}
+.sk-edittgt{font:400 11px/1 var(--font);color:var(--onSurfaceVariant);white-space:nowrap}
+.sk-palrow{display:flex;gap:6px;align-items:center;margin-top:var(--sp-xs);margin-bottom:var(--sp-xs)}
+.sk-palrow select{flex:1}
+.sk-swatches{display:flex;flex-wrap:wrap;gap:5px}
+.sk-swatches button{
+  width:26px;height:26px;padding:0;border-radius:var(--r-xs);
+  border:var(--bd) solid var(--outline);cursor:pointer;
+}
+.sk-swatches button:hover{outline:2px solid var(--primary);outline-offset:1px}
+.sk-hint{font:400 11px/1.5 var(--font);color:var(--onSurfaceVariant);margin:0}
+
+/* 単体のcolor行（旧type:'color'。colorset を使わないツール向け） */
+.sk-colorrow{flex-direction:row;align-items:center;gap:var(--sp-xs)}
+.sk-colorrow > span{flex:0 0 auto;min-width:44px;font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant)}
+.sk-colorrow input[type=color]{
+  flex:1;height:28px;padding:2px;cursor:pointer;background:var(--surface);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);
+}
+.sk-none{
+  flex:0 0 auto;height:28px;padding:0 var(--sp-s);border-radius:var(--r-s);
+  border:var(--bd) solid var(--outline);background:var(--surface);color:var(--onSurfaceVariant);
+  font:400 12px/1 var(--font);cursor:pointer;
+}
+.sk-none[aria-pressed="true"]{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+
+.sk-selectrow{flex-direction:row;align-items:center;gap:var(--sp-xs)}
+.sk-selectrow > span{flex:0 0 auto;min-width:44px;font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant)}
+.sk-checkrow{flex-direction:row;align-items:center;gap:var(--sp-xs);cursor:pointer}
+.sk-checkrow input{width:15px;height:15px;accent-color:var(--primary)}
+.sk-checkrow span{font:400 12px/1.4 var(--font);color:var(--onSurface)}
+
+.sk-togglelabel{font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant)}
+.sk-seg{display:flex;gap:6px}
+/* 選択肢が多いトグルは .sk-wrap を足すと折り返す（1行3個まで・2026-09-13 tri-grid で追加） */
+.sk-seg.sk-wrap{flex-wrap:wrap}
+.sk-seg.sk-wrap button{flex:1 1 calc(33.33% - 6px);min-width:64px}
+.sk-seg button{
+  flex:1;height:28px;padding:0 10px;border-radius:var(--r-s);
+  border:var(--bd) solid var(--outline);background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--font);cursor:pointer;
+}
+.sk-seg button:hover{background:var(--hovered)}
+.sk-seg button.on{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+
+/* アイコン付きボタン列（ブラシ・選択の操作。1行5個で折り返す・2026-09-13 追加） */
+.sk-seg.sk-icons{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.sk-seg.sk-icons button{
+  flex:none;height:auto;min-height:52px;padding:6px 2px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+}
+.sk-ico{width:24px;height:24px;display:block;color:inherit}
+.sk-ico svg{display:block;width:100%;height:100%}
+.sk-iconame{font:400 11px/1.2 var(--font);color:var(--onSurfaceVariant);white-space:nowrap}
+.sk-seg.sk-icons button.on .sk-iconame{color:var(--onPrimary)}
+
+.sk-btn{
+  width:100%;height:32px;padding:0 var(--sp-s);border-radius:var(--r-s);
+  border:var(--bd) solid var(--outline);background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--font);cursor:pointer;
+}
+.sk-btn:hover{background:var(--hovered)}
+.sk-btn.primary{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.sk-mini{
+  height:28px;padding:0 var(--sp-xs);border-radius:var(--r-s);
+  border:var(--bd) solid var(--outline);background:var(--surface);
+  font:400 12px/1 var(--font);cursor:pointer;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   デザイン以外のツール（実用ツール）の骨格（006_ツールの規格 §6・2026-08-24 追加）
+
+   グラフィックの道具は図版を1枚まん中に置くが、実用ツールの本体は
+   一覧・表・入力なので **左上から流す**。`<body>` の data-frame で選ぶ:
+
+     （無指定）           … グラフィック。ステージは中央寄せ・パネルは右308px
+     data-frame="tool"   … 実用ツール。本体を左上から流す・パネルは右308px（既定）
+     data-frame="side"   … 実用ツール。本体を左上から流す・**左サイドバー208px**
+                           （一覧を行き来する道具向け。出所は
+                            202_日々-タスク管理/design-guidelines.md「左サイドバー＋メイン基本」）
+
+   トークン・書体・行部品はどれも共通（studio2.css を割らない）。
+   ══════════════════════════════════════════════════════════════════════ */
+:root{ --side:208px; }
+
+/* 本体を左上から流す（中央寄せしない）。地はサイドバー/パネルと同じ面にして、
+   仕切りは1本の罫線だけにする（ライトでもダークでも同じ見え方になる） */
+body[data-frame="tool"] #stage,
+body[data-frame="side"] #stage{
+  display:block;overflow-y:auto;padding:var(--sp-l);background:var(--surface);
+}
+
+body[data-frame="side"] #side{
+  width:var(--side);flex:0 0 var(--side);background:var(--surface);
+  border-right:var(--bd) solid var(--outline);
+  overflow-y:auto;overscroll-behavior:contain;
+}
+body[data-frame="side"] #side::-webkit-scrollbar{width:10px}
+body[data-frame="side"] #side::-webkit-scrollbar-thumb{background:var(--outlineBright);border-radius:var(--r-full);border:3px solid var(--surface)}
+/* サイドバーの中身: 見出し＋行。行は「押した後が読める」ふつうの文にする */
+.navsec{padding:var(--pad) var(--sp-m);border-bottom:var(--bd) solid var(--outlineBright)}
+.navsec > h2{font:700 11px/1 var(--font);color:var(--onSurfaceVariant);margin-bottom:var(--sp-xs);letter-spacing:.08em}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav button{
+  height:32px;padding:0 var(--sp-xs);border:none;border-radius:var(--r-s);
+  background:transparent;color:var(--onSurface);font:400 13px/1 var(--font);
+  cursor:pointer;text-align:left;display:flex;align-items:center;gap:var(--sp-xs);
+}
+.nav button:hover{background:var(--hovered)}
+.nav button[aria-current="true"]{background:var(--primary);color:var(--onPrimary)}
+.nav .count{margin-left:auto;font:400 11px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--onSurfaceVariant)}
+.nav button[aria-current="true"] .count{color:var(--onPrimary)}
+
+/* メインの見出しと、ボタンを並べる行 */
+.sec-h{font:700 14px/1.6 var(--font);color:var(--onSurface);margin-bottom:var(--sp-2xs)}
+.sec-h + .hint{margin-top:0;margin-bottom:var(--sp-s)}
+.actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--sp-s)}
+
+/* 一覧（カード化しない・1行40px・罫線1本で区切る） */
+.list{display:flex;flex-direction:column}
+.list .row{
+  display:flex;align-items:center;gap:var(--sp-s);
+  min-height:40px;padding:var(--sp-xs) var(--sp-s);
+  border-bottom:var(--bd) solid var(--outlineBright);
+}
+.list .row:hover{background:var(--hovered)}
+.list .row[aria-selected="true"]{box-shadow:inset 2px 0 0 var(--primary);background:var(--hovered)}
+.list .row .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list .row .sub{font:400 11px/1.5 var(--font);color:var(--onSurfaceVariant)}
+.list .row .when{font:400 11px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--onSurfaceVariant)}
+.list .row input[type=checkbox]{width:15px;height:15px;accent-color:var(--primary);margin:0;flex:0 0 auto}
+
+/* 表（数が並ぶところは等幅・右寄せ） */
+table.data{border-collapse:collapse;width:100%}
+table.data th,table.data td{
+  padding:var(--sp-xs) var(--sp-s);text-align:left;
+  border-bottom:var(--bd) solid var(--outlineBright);font:400 13px/1.6 var(--font);
+}
+table.data th{font:700 11px/1 var(--font);color:var(--onSurfaceVariant);letter-spacing:.08em;white-space:nowrap}
+table.data td.num,table.data th.num{
+  text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;
+}
+
+/* 空のとき・失敗したとき（無反応にしない。§6の「状態を省略しない」） */
+.empty{
+  padding:var(--sp-xl) var(--sp-m);text-align:center;
+  font:400 13px/1.8 var(--font);color:var(--onSurfaceVariant);
+}
+.empty .what{display:block;color:var(--onSurface);font-weight:700;margin-bottom:var(--sp-2xs)}
+.err{
+  padding:var(--sp-s) var(--sp-m);border-radius:var(--r-s);
+  border:var(--bd) solid #C0392B;color:#C0392B;background:var(--surface);
+  font:400 12px/1.6 var(--font);
+}
+[data-theme="dark"] .err{border-color:#FF8A80;color:#FF8A80}
+
+/* 入力（ラベルは入力欄の上に置く。placeholderをラベル代わりにしない） */
+.field{display:flex;flex-direction:column;gap:var(--sp-2xs);margin-bottom:var(--pad)}
+.field > label{font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant)}
+.field input[type=text],.field input[type=search],.field input[type=date],.field textarea{
+  height:32px;padding:0 var(--sp-xs);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);
+  background:var(--surface);color:var(--onSurface);font:400 13px/1 var(--font);
+}
+.field textarea{height:auto;min-height:72px;padding:var(--sp-xs);line-height:1.6;resize:vertical}
+.field input:focus,.field textarea:focus{border-color:var(--primary);outline-offset:0}
+
+/* ボタンの種類を足す（既存の .btn＝枠あり / .btn.primary はそのまま） */
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--hovered)}
+.btn.danger{border-color:#C0392B;color:#C0392B}
+.btn.danger:hover{background:#C0392B14}
+[data-theme="dark"] .btn.danger{border-color:#FF8A80;color:#FF8A80}
+
+/* 縮退（1024px未満）: サイドバーを上へ積む */
+@media (max-width:1023px){
+  body[data-frame="side"] #main{flex-direction:column}
+  body[data-frame="side"] #side{
+    width:100%;flex:none;border-right:none;border-bottom:var(--bd) solid var(--outline);
+  }
+  body[data-frame="side"] #stage{padding:var(--sp-m)}
+}
+
+/* ==========================================================================
+   白黒版（2026-09-25 ユーザー決定・006 §6）
+   「白と黒で洗練されてて もっとみやすく 単語を端的に かつ 文字を太く」
+   --t-* は見た目の調整値。任意のツールを ?tune 付きで開くと調整パネルが出る
+   （000_kit/studio-tune.js）。書き出した JSON は
+   python3 000_kit/apply-ui-tune.py <json> でこのブロックへ反映する。手で直さない
+   ========================================================================== */
+/* UI調整値（--t-*）は studio-tokens.css に移した（冒頭で @import） */
+:root{
+  --onSurface:var(--t-ink);--onSurfaceVariant:var(--t-ink);--outline:var(--t-ink);--outlineBright:var(--t-hair);--outlineDim:var(--t-ink);
+  --surface:var(--t-paper);--primary:var(--t-ink);--onPrimary:var(--t-paper);--hovered:#0000000F;--surfaceDim:var(--t-stage);--muted:var(--t-muted);
+}
+[data-theme="dark"]{
+  --surface:var(--t-ink);--surfaceDim:#111;--surfaceContainer:#111;--onSurface:var(--t-paper);--onSurfaceVariant:var(--t-paper);
+  --outline:var(--t-paper);--outlineBright:#2A2A2A;--outlineDim:var(--t-paper);--primary:var(--t-paper);--onPrimary:var(--t-ink);--hovered:#FFFFFF1A;
+}
+body{font-weight:500}
+/* 上部バー */
+#bar{border-bottom:calc(var(--t-line) + .5px) solid var(--onSurface);gap:10px;height:var(--t-bar-h)}
+#main{height:calc(100vh - var(--t-bar-h))}
+#bar>*,.cmn>*{flex:none}
+#bar .name{font:var(--t-w-name) var(--t-fs-name)/1 var(--font);letter-spacing:.02em}
+#bar .sep{height:20px;background:var(--outlineBright);width:1px}
+.btn{font-weight:var(--t-w-btn);font-size:var(--t-fs-btn);border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);height:var(--t-btn-h);padding:0 12px;color:var(--onSurface);background:var(--surface)}
+.btn.primary{background:var(--onSurface);color:var(--surface);border-color:var(--onSurface)}
+.btn kbd{border:0;padding:0;font-weight:var(--t-w-btn);color:var(--muted)}
+.btn.primary kbd{color:var(--surface);opacity:.6}
+#memo{font-weight:var(--t-w-label);border:0;border-bottom:var(--t-line) solid var(--onSurface);border-radius:0;background:transparent;width:140px}
+#memo::placeholder{color:var(--muted);font-weight:var(--t-w-label)}
+#bar .caprow span{font-weight:var(--t-w-label);color:var(--onSurface)}
+input[type=checkbox]{accent-color:var(--onSurface)}
+/* 共通操作（大きさ・背景・再生・A/B） */
+.cmn{display:flex;align-items:center;gap:6px}
+.cmn select{width:auto;min-width:0;font:var(--t-w-btn) var(--t-fs-btn)/1 var(--font);height:var(--t-btn-h);border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);background:var(--surface);color:var(--onSurface);padding:0 8px}
+.cmn .bgsw{-webkit-appearance:none;appearance:none;width:var(--t-btn-h);min-width:var(--t-btn-h);height:var(--t-btn-h);border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);padding:2px;background:var(--surface);cursor:pointer}
+.cmn .bgsw::-webkit-color-swatch-wrapper{padding:0}.cmn .bgsw::-webkit-color-swatch{border:0;border-radius:1px}
+.btn.ab{width:var(--t-btn-h);min-width:var(--t-btn-h);padding:0;display:inline-flex;align-items:center;justify-content:center}
+.btn.ab.set{background:var(--onSurface);color:var(--surface)}
+.btn.play{min-width:64px}
+/* ステージ */
+#stage{background:var(--surfaceDim)}
+#board{border:0;border-radius:0;box-shadow:0 0 0 1px var(--outlineBright)}
+/* パネル */
+#panel{border-left:calc(var(--t-line) + .5px) solid var(--onSurface);width:var(--t-panel-w);flex:0 0 var(--t-panel-w)}
+.sk-grp{border-bottom:1px solid var(--outlineBright);padding:var(--t-grp-pad) var(--sp-m)}
+.sk-grp-ttl{font:var(--t-w-head) var(--t-fs-head)/1 var(--font);color:var(--onSurface);letter-spacing:.12em;margin-bottom:var(--t-row-gap)}
+.sk-grp-ttl::before{opacity:1;font-size:8px}
+.sk-row{gap:4px;margin-bottom:var(--t-row-gap)}
+.sk-label,.sk-togglelabel{font:var(--t-w-label) var(--t-fs-label)/1.3 var(--font);color:var(--onSurface)}
+.sk-num{font-weight:var(--t-w-num)!important;font-size:var(--t-fs-num)!important;border:0!important;border-bottom:var(--t-line) solid var(--onSurface)!important;border-radius:0!important;background:transparent!important;color:var(--onSurface)!important}
+.sk-unit{font-weight:var(--t-w-label);color:var(--muted)}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--onSurface)}
+input[type=range]::-webkit-slider-thumb{width:var(--t-thumb)!important;height:var(--t-thumb)!important;border-radius:1px!important;background:var(--onSurface)!important;margin-top:calc(1px - var(--t-thumb) / 2)!important}
+.sk-seg .btn,.sk-seg button{font-weight:var(--t-w-btn)}
+.sk-seg .on{background:var(--onSurface)!important;color:var(--surface)!important;border-color:var(--onSurface)!important}
+.sk-chipcol{border-radius:var(--t-radius)!important}
+.sk-chipnm{font-weight:var(--t-w-label);color:var(--onSurface)}
+.sk-edittgt{display:none}
+.sk-hex{font-weight:var(--t-w-num);border:0;border-bottom:var(--t-line) solid var(--onSurface);border-radius:0;background:transparent}
+.sk-none{font-weight:var(--t-w-btn)}
+.sk-btn{font-weight:var(--t-w-btn)!important;border:var(--t-line) solid var(--onSurface)!important;border-radius:var(--t-radius)!important}
+.sk-palrow select,select{font-weight:var(--t-w-label)}
+.sk-palrow select{border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius)}
+#bar{gap:8px;padding:0 12px;overflow:hidden}
+#bar .fill{flex:1 1 0;min-width:0}
+#memo{width:96px}
+.btn{padding:0 10px}
+.cmn{gap:4px}
+
+/* ==========================================================================
+   Studio.stageBar の部品（006 §6・§13・v0.7.0）
+   大きさ・背景・再生・A/B・秒数・色スウォッチ・映像ダイアログ・進捗。
+   006_ツールの規格/比較用_白黒UI案 の試作をここで正式化する。
+   ========================================================================== */
+/* アイコン付きボタン（appBar の svgIcon / extra[].icon。UI-04: アイコンだけで意味を伝えない＝
+   必ず短い文字ラベルと併記し、ariaLabel/titleに完全な文言を持たせる） */
+.btn-ico{display:inline-flex;width:14px;height:14px;flex:none}
+.btn-ico svg{display:block;width:100%;height:100%}
+.btn-ico svg,.btn-ico svg *{fill:currentColor}
+.btn.has-icon{gap:6px}
+/* アイコンのみのボタン（例: インスタ切替）。18pxのアイコンを中央に置き、文字ラベルは持たない */
+.btn.icon-only{padding:0 8px}
+.btn.icon-only .btn-ico{width:18px;height:18px}
+
+/* 再生／A/Bの状態表示（見た目は既存 .cmn / .btn.play / .btn.ab を流用） */
+.btn.play[aria-pressed="true"]{background:var(--onSurface);color:var(--surface)}
+
+/* 色スウォッチ（opts.colors。パネルのcolorsetをコンパクトにした上部バー版） */
+.cmn-colors{gap:6px}
+.cswatch{
+  width:var(--t-btn-h);height:var(--t-btn-h);padding:2px;flex:none;cursor:pointer;
+  border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);background:var(--surface);
+}
+.cswatch[aria-pressed="true"]{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--onSurface)}
+.cswatch-fill{
+  display:block;width:100%;height:100%;border-radius:1px;
+  background-image:linear-gradient(45deg,#0000000f 25%,transparent 25%,transparent 75%,#0000000f 75%),
+                   linear-gradient(45deg,#0000000f 25%,transparent 25%,transparent 75%,#0000000f 75%);
+  background-size:8px 8px;background-position:0 0,4px 4px;
+}
+.cswatch.none .cswatch-fill{background-color:transparent}
+.cpop{
+  position:fixed;z-index:40;display:flex;flex-direction:column;gap:var(--sp-xs);
+  padding:var(--sp-s);border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);
+  background:var(--surface);box-shadow:0 4px 16px #00000026;min-width:200px;
+}
+.cpop-row{display:flex;align-items:center;gap:var(--sp-xs)}
+.cpop-row input[type=color]{
+  width:32px;height:28px;padding:2px;cursor:pointer;background:var(--surface);
+  border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);flex:0 0 32px;
+}
+.cpop-hex{
+  flex:1;min-width:0;height:28px;padding:0 6px;font:var(--t-w-num) 11px/1 var(--mono);
+  border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);background:var(--surface);color:var(--onSurface);
+}
+.cpop select{border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius)}
+.cpop-swatches{display:flex;flex-wrap:wrap;gap:5px}
+.cpop-swatches button{width:22px;height:22px;padding:0;border-radius:var(--r-xs);border:var(--t-line) solid var(--outline);cursor:pointer}
+.cpop-swatches button:hover{outline:2px solid var(--onSurface);outline-offset:1px}
+
+/* 映像ダイアログ（KEY-03: 最初の欄にフォーカス・Tabで循環・Enterで決定・Escで閉じる） */
+.sb-dlg-backdrop{
+  position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  background:#00000040;
+}
+.sb-dlg-backdrop[hidden]{display:none}
+.sb-dlg{
+  width:min(320px,calc(100vw - 32px));padding:var(--sp-l);
+  border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);
+  background:var(--surface);display:flex;flex-direction:column;gap:var(--pad);
+}
+.sb-field{display:flex;flex-direction:column;gap:var(--sp-2xs)}
+.sb-field>span{font:var(--t-w-label) var(--t-fs-label)/1.3 var(--font);color:var(--onSurface)}
+.sb-field select,.sb-field input{
+  height:var(--t-btn-h);padding:0 var(--sp-xs);
+  border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);
+  background:var(--surface);color:var(--onSurface);font:var(--t-w-num) var(--t-fs-num)/1 var(--mono);
+}
+.sb-actions{display:flex;justify-content:flex-end}
+.sb-progress-text{font:var(--t-w-label) var(--t-fs-label)/1.4 var(--font);color:var(--onSurface)}
+.sb-progress{height:6px;border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);overflow:hidden;background:var(--surface)}
+.sb-progress-bar{height:100%;width:0%;background:var(--onSurface);transition:width .1s linear}
+
+@media (max-width:1023px){
+  #bar{height:auto;overflow:visible}
+  #main{height:auto}
+  #panel{width:100%;flex:none}
+}
+/* インスタの表示切替（stageBar・§0）: OFF で大きさ・再生・映像と版面ガイドを隠す */
+.insta-part[hidden]{display:none!important}
+/* hidden 属性を kit の部品の display 指定（.btn の inline-flex・.cpop の flex）に負けさせない（2026-10-10・135/136 で見つかった） */
+.cpop[hidden],.btn[hidden],.sb-dlg[hidden]{display:none!important}
+body.insta-off .frame-guide{display:none}
+/* インスタのアイコンは線画（塗らない）。.btn-ico の fill:currentColor を打ち消す */
+.insta-toggle .btn-ico svg,.insta-toggle .btn-ico svg *{fill:none;stroke:currentColor}
+.insta-toggle .btn-ico svg .dot{fill:currentColor;stroke:none}

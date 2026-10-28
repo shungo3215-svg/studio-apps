@@ -1,0 +1,2318 @@
+<!doctype html>
+<html data-sm-build="8de2c3a・2026-10-28 09:33" data-sm-app="stroke-swell" lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="studio-spec" content="type:描いて増やす">
+<title>線幅の抑揚</title>
+<link rel="stylesheet" href="_ext/000_kit/studio2.css?v=0.7.8">
+<style>
+  /* 独自CSSは最小限（006_ツールの規格 §6）。盤面と貼り付け欄の見た目だけ。 */
+  #stage{ flex-direction:column; align-items:stretch; gap:var(--sp-m); }
+  /* キャンバスはグラフと同じ幅（stage幅いっぱい）にし、高さはグラフ(200px)と合わせて
+     ビューポートに収める。図形自体は viewBox の既定(xMidYMid meet)でその中に最大表示・
+     アスペクト維持（横長の器に正方形のviewBoxが収まる＝左右に余白が付くのは正常）。 */
+  #stageWrap{ width:100%; height:calc(100vh - 52px - 200px - 140px - var(--sp-l) * 2 - var(--sp-m) * 2); min-height:220px; max-width:100%; }
+  /* 段5: 奥行きグラフはグラフ「線幅に連動」ONのとき非表示にし、キャンバスがその分広くなる
+     （グラフ1枚のときだけ高さの再配分をする＝グラフ2枚のときは元のまま）。 */
+  #stage.depth-graph-hidden #stageWrap{ height:calc(100vh - 52px - 200px - var(--sp-l) * 2 - var(--sp-m) * 2); }
+  #stage.depth-graph-hidden #depthGraphWrap{ display:none; }
+  #canvas{ width:100%; height:100%; display:block; background:var(--surface); border:var(--bd) solid var(--outline); border-radius:var(--r-xs); touch-action:none; }
+  #canvas .center{ fill:none; stroke:#999999; stroke-width:0.5; }
+  #canvas .fillshape{ fill-rule:nonzero; }
+  #canvas .pt{ cursor:pointer; }
+  #canvas .pt circle{ fill:var(--surface); stroke:var(--onSurfaceVariant); stroke-width:1.5; }
+  #canvas .pt.sel circle{ fill:var(--primary); stroke:var(--primary); }
+  #canvas .t0mark{ fill:var(--primary); stroke:none; }
+  /* 幅のグラフ・奥行きのグラフ（イージングカーブエディタと同じ見え方。キャンバスの下・幅いっぱい） */
+  #graphWrap{ width:100%; max-width:100%; height:200px; }
+  #depthGraphWrap{ width:100%; max-width:100%; height:140px; }
+  #graph, #depthGraph{ width:100%; height:100%; display:block; background:var(--surface); border:var(--bd) solid var(--outline); border-radius:var(--r-xs); touch-action:none; cursor:default; }
+  #graph.dependent, #depthGraph.dependent{ opacity:.4; }
+  #graph .gtick, #depthGraph .gtick{ stroke:var(--outlineBright); stroke-width:1; }
+  #graph .gzero, #depthGraph .gzero{ stroke:var(--outline); stroke-width:1; }
+  #graph .gcurve, #depthGraph .gcurve{ fill:none; stroke:var(--outlineDim); stroke-width:1.5; }
+  #graph .gcurve.right, #depthGraph .gcurve.right{ stroke:var(--onSurfaceVariant); stroke-dasharray:3 3; }
+  #graph .ghandle, #depthGraph .ghandle{ cursor:ns-resize; }
+  #graph .ghandle circle, #depthGraph .ghandle circle{ fill:var(--surface); stroke:var(--onSurfaceVariant); stroke-width:1.5; }
+  #graph .ghandle.right circle, #depthGraph .ghandle.right circle{ stroke-dasharray:2 2; }
+  #graph .ghandle.sel circle, #depthGraph .ghandle.sel circle{ fill:var(--primary); stroke:var(--primary); }
+  #graph .g0mark, #depthGraph .g0mark{ fill:var(--primary); }
+  /* 段5: 連動ONのとき、幅のグラフの右端に奥行きの%目盛りを併記する */
+  #graph .gdaxis-line{ stroke:var(--outlineBright); stroke-width:1; stroke-dasharray:2 2; }
+  #graph .gdaxis-text{ font:400 10px/1 var(--font); fill:var(--onSurfaceVariant); }
+  /* 貼り付け欄はキャンバス外へ出さず、右パネル最上段に置く（見切れ対策） */
+  #pasteBox{ display:flex; flex-direction:column; gap:var(--sp-xs); }
+  #pasteBox label{ font:700 11px/1.3 var(--font); color:var(--onSurfaceVariant); letter-spacing:.08em; }
+  #pasteBox textarea{ width:100%; box-sizing:border-box; min-height:0; font:400 11px/1.5 var(--font); resize:vertical; }
+  #pasteBox .row{ display:flex; gap:var(--sp-s); align-items:center; }
+  #errBar{ font:400 12px/1.5 var(--font); color:#b0463e; max-width:100%; }
+  #errBar:empty{ display:none; }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body data-frame="tool">
+
+<header id="bar"></header>
+
+<div id="main">
+  <div id="stage">
+    <div id="errBar" role="alert"></div>
+    <div id="stageWrap">
+      <svg id="canvas" viewBox="-340 -340 680 680" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="線幅の抑揚"></svg>
+    </div>
+    <div id="graphWrap">
+      <svg id="graph" viewBox="0 0 1000 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="幅のグラフ"></svg>
+    </div>
+    <div id="depthGraphWrap">
+      <svg id="depthGraph" viewBox="0 0 1000 140" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="奥行きのグラフ"></svg>
+    </div>
+  </div>
+  <aside id="panel">
+    <div class="sk-grp">
+      <div class="sk-grp-ttl" style="cursor:default">パス</div>
+      <div id="pasteBox">
+        <label for="svgPaste">SVGを貼る（⌘V でも可）</label>
+        <textarea id="svgPaste" rows="2" spellcheck="false" aria-label="SVGの文字列"></textarea>
+        <div class="row">
+          <button type="button" class="btn" id="loadPasteBtn">この文字列を読み込む</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script src="_ext/000_kit/studio-kit.js?v=0.7.10"></script>
+<script src="geom.js?v=20260926a"></script>
+<script src="svgin.js?v=20260926a"></script>
+<script src="outline.js?v=20260925d"></script>
+<script src="profile.js?v=20260925a"></script>
+<script src="depth.js?v=20260925e"></script>
+<script src="fit.js?v=20260925a"></script>
+<script src="motion.js?v=20260925a"></script>
+<script>
+/* ============================================================
+   線幅の抑揚（stroke-swell）— 000_README.md 仕様。
+   閉じたパスの中心線に幅ポイント（位置t・左幅・右幅）を置いて太さの抑揚を付け、
+   輪郭化した塗りSVGとして書き出す。Illustrator の線幅ツールと同じデータモデル
+   （段2でこの数値列を線幅プロファイルへ戻すため、データモデルが最重要）。
+   輪郭化の幾何演算は outline.js（純関数・DOM非依存・svgin.jsの d 読取に依存しない）。
+   ここは DOM／取り込み／描画／編集操作／書き出しだけを持つ。
+   ============================================================ */
+var SVGNS = 'http://www.w3.org/2000/svg';
+var TOOL = 'stroke-swell';
+var PJ = '157_線幅の抑揚';
+var LAW = '閉じたパスの中心線に置いた幅ポイント（位置・左幅・右幅）で、線の太さに抑揚を付けて塗りに輪郭化する';
+var TOOL_VERSION = '0.1.0';
+var PARAMS_VERSION = 10; // 段10: 帯のなめらかさ(fitTol)を追加でv9→v10（段9=背景色(bg)追加でv8→v9）
+var HALF = 300; // 中心線を収める世界座標の半幅（svgin.jsの[-1,1]正規化 × HALF）
+var TOL = 0.05; // 弧長フラット化の許容誤差(px)。規格上の要件どおり0.05px以下
+var MAX_LINE_STEP = 4; // 直線区間の最大分割幅（世界座標px）。buildOutlineの既定と揃える
+var CORNER_THRESHOLD_DEG = 120; // 段4: 折り返しを丸めるしきい値（隣接法線のなす角）
+var CORNER_ARC_STEPS = 12; // 段4: 半円弧の分割数
+var EXPORT_FIT_TOL = 0.15; // 段6: 書き出し用の再フラット化の細かさの基準(px・/3して使う)。曲線フィットの許容誤差ではない（それは values.fitTol＝fitTolNow()）
+var FIT_TOL_DEFAULT = 0.5; // 段10: 帯のなめらかさ（曲線フィット許容誤差px）の既定。fit.jsの既定と同じ
+var EXPORT_MAX_LINE_STEP = 2; // 段6: 書き出し専用の再フラット化密度（表示密度=MAX_LINE_STEPとは独立）
+
+var canvas = document.getElementById('canvas');
+var canvasArtGroup = null; // render()が毎回作り直す、インスタONの版面フィットを掛けるグループ（006 §0）
+var stage = document.getElementById('stage');
+var errBar = document.getElementById('errBar');
+var graph = document.getElementById('graph');
+var depthGraph = document.getElementById('depthGraph');
+var GRAPH_W = 1000, GRAPH_H = 200, GRAPH_PAD_X = 24, GRAPH_PAD_T = 16, GRAPH_PAD_B = 24;
+var DGRAPH_H = 140, DGRAPH_PAD_T = 16, DGRAPH_PAD_B = 16;
+
+/* --- 内蔵サンプル（INIT-01・006 §0）: 円1つ。線幅の抑揚（太い・細い）が一目で分かる単純な閉じたパス。
+   中心線は svgin が±1へ正規化するので、INIT_SCALE で版面の短辺の60%（半径=HALF*0.6）に縮めて置く。 --- */
+var SAMPLE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-100 -100 200 200">'
+  + '<path d="M -100,0 A 100,100 0 1 1 100,0 A 100,100 0 1 1 -100,0 Z"/>'
+  + '</svg>';
+var INIT_SCALE = 0.6;
+
+/* --- 状態 --------------------------------------------------------------- */
+var state = {
+  sourceText: '',      // 取り込んだSVGの文字列そのまま（封筒に同梱＝復元の入口）
+  segsWorld: null,     // 中心線セグメント（世界座標=HALF基準にスケール済み）
+  baseD: '',            // 中心線の d 文字列（世界座標・封筒の basePath に入れる）
+  outline: null,       // outline.js の buildOutline() の戻り値（毎フレーム再計算）
+  points: [],           // [{t,left,right}]
+  selected: -1,         // points の選択index。-1=未選択
+  drag: null,           // ドラッグ中の一時状態
+  t0: 0,                // 起点（絶対t）。幅のグラフの横軸0%はここ
+  reversed: false,       // 進む向き（true=逆向き）
+  pickingT0: false,     // true の間、次のキャンバスクリックで起点を決める
+  depthPoints: [],      // [{t,z}]（奥行きの柱。z: 手前+・奥-・0=元の平面）
+  proj: null,           // 直近renderの投影結果キャッシュ（computeProjection()の戻り値）
+  pieceCount: 64        // 回転時に帯を切る小片数（UIコントロールなし・封筒には記録する）
+};
+
+/* --- 上部バー（006_ツールの規格 §0 標準の画面。正典 = 159_立体スプライン）--------------
+   書き出しは短い形（コピー ⌘C／SVG↓／JSON↓）。「動画」への入口はstageBarの▶/A/B/秒数/映像に
+   一本化し、appBarの「動画」（パネルへスクロールするだけの重複ボタン）は撤去した（KEY-04）。 --- */
+// Serendie Symbols outlined/file-download.svg（000_kit/symbols・MIT）。SVG・JSON書き出しの両方に使う。
+var ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.50095 3.64935C9.66036 3.48994 9.87656 3.40039 10.102 3.40039H18.7484C19.2179 3.40039 19.5984 3.78095 19.5984 4.25039V19.7504C19.5984 20.2198 19.2179 20.6004 18.7484 20.6004H5.24844C4.77899 20.6004 4.39844 20.2198 4.39844 19.7504V9.10394C4.39844 8.87851 4.48799 8.66231 4.6474 8.5029L9.50095 3.64935ZM10.247 4.60039L5.59844 9.24892V19.4004H18.3984V4.60039H10.247ZM5.4962 9.35116L5.49592 9.35143L5.24844 9.10394L5.49592 9.35143C5.49602 9.35134 5.49611 9.35125 5.4962 9.35116ZM10.3492 4.49816C10.3493 4.49807 10.3494 4.49797 10.3495 4.49788L10.102 4.25039L10.3495 4.49788L10.3492 4.49816ZM11.3983 13.5522L9.60457 11.7584L8.75604 12.607L11.3967 15.2477C11.7287 15.5796 12.2669 15.5796 12.5988 15.2477L15.2391 12.6074L14.3906 11.7588L12.5983 13.5511L12.5979 9.00009L11.3979 9.00019L11.3983 13.5522Z" fill="currentColor"/></svg>';
+var bar = Studio.appBar('#bar', {
+  name: '線幅の抑揚', sub: 'STROKE-SWELL',
+  onCopy: doCopySVG, onSvg: doExportSVG,
+  copyLabel: 'コピー',
+  svgLabel: 'SVG', svgTitle: 'SVGを書き出し', svgAriaLabel: 'SVGを書き出し', svgIcon: ICON_DOWNLOAD,
+  extra: [
+    { label: 'JSON', icon: ICON_DOWNLOAD, title: '幅ポイントをJSONで書き出し', ariaLabel: '幅ポイントをJSONで書き出し', onClick: doExportJSON }
+  ]
+});
+
+/* --- 色（§5 COLOR-00・§0）。パネルには置かず上部バーのスウォッチへ。初期色は規定パレットから
+   （帯＝いちばん暗い色・塗り層＝白以外の残りの色・背景は白が既定）。 -------------------------- */
+function pickDefaultColors() {
+  // INIT-01: 帯＝規定パレット navy の青、塗り層＝なし、背景＝白。
+  return { band: '#0044CC', layer: 'none' };
+}
+var DEFAULT_PALETTE_COLORS = (Studio.PALETTES && Studio.PALETTES[0] && Studio.PALETTES[0].colors) || ['#2b2b2b', '#a1cbed', '#ffffff'];
+var colorState = { fill: pickDefaultColors().band, fillLayer: pickDefaultColors().layer, bg: '#FFFFFF' };
+function setColorState(key, v) {
+  colorState[key] = v;
+  render();
+  pushHistory();
+}
+
+/* --- 版面（§13 VID-01）。大きさ（4:5 等）に合わせて表示・書き出しの範囲を決める。短い方の辺を
+   2*HALF（=作品の座標）に合わせ、長い方へ広げる。ガイドは画面だけ（書き出さない） ------------ */
+var frameBox = null;
+function setFrame(pxW, pxH, key) {
+  var a = pxW / pxH, fw = 2 * HALF, fh = 2 * HALF;
+  if (a < 1) fh = fw / a; else if (a > 1) fw = fh * a;
+  frameBox = { x: -fw / 2, y: -fh / 2, w: fw, h: fh, pxW: pxW, pxH: pxH, key: key };
+  var m = Math.max(fw, fh) * 0.06;
+  canvas.setAttribute('viewBox', [frameBox.x - m, frameBox.y - m, fw + 2 * m, fh + 2 * m].join(' '));
+}
+function drawFrameGuide() {
+  if (!frameBox) return;
+  var f = frameBox, g = document.createElementNS(SVGNS, 'g');
+  g.setAttribute('class', 'frame-guide'); g.setAttribute('pointer-events', 'none');
+  var r = document.createElementNS(SVGNS, 'rect');
+  r.setAttribute('x', f.x); r.setAttribute('y', f.y); r.setAttribute('width', f.w); r.setAttribute('height', f.h);
+  r.setAttribute('fill', 'none'); r.setAttribute('stroke', '#8A8A8A'); r.setAttribute('stroke-width', 1);
+  r.setAttribute('stroke-dasharray', '4 3'); r.setAttribute('vector-effect', 'non-scaling-stroke');
+  g.appendChild(r);
+  var y = f.y - Math.max(f.w, f.h) * 0.03, tick = Math.max(f.w, f.h) * 0.012;
+  function line(x1, y1, x2, y2) {
+    var l = document.createElementNS(SVGNS, 'line');
+    l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+    l.setAttribute('stroke', '#8A8A8A'); l.setAttribute('stroke-width', 1); l.setAttribute('vector-effect', 'non-scaling-stroke');
+    g.appendChild(l);
+  }
+  line(f.x, y, f.x + f.w, y); line(f.x, y - tick, f.x, y + tick); line(f.x + f.w, y - tick, f.x + f.w, y + tick);
+  var t = document.createElementNS(SVGNS, 'text');
+  t.setAttribute('x', f.x + f.w / 2); t.setAttribute('y', y - tick * 1.3); t.setAttribute('text-anchor', 'middle');
+  t.setAttribute('font-size', Math.max(f.w, f.h) * 0.022); t.setAttribute('fill', '#6F6F6F');
+  t.setAttribute('font-family', 'ui-monospace, Menlo, monospace'); t.setAttribute('font-weight', '600');
+  t.textContent = f.key + ' · ' + f.pxW + ' × ' + f.pxH + ' px';
+  g.appendChild(t);
+  canvas.appendChild(g);
+}
+
+/* --- 上部バー共通操作（Studio.stageBar・§0・§13）。大きさ・色（塗り（帯）・塗り層・背景）・
+   再生・A/B・映像をここへ集約する。getParams/apply/frame/metaはこのファイル内の関数（関数宣言は
+   ホイストされるため、この下で定義していない関数もここから参照できる）。 ----------------------- */
+var sb = Studio.stageBar('#bar', {
+  onSize: function (w, h, key) { setFrame(w, h, key); render(); },
+  colors: [
+    { key: 'fill', label: '塗り（帯）', value: colorState.fill },
+    { key: 'fillLayer', label: '塗り層', value: colorState.fillLayer },
+    { key: 'bg', label: '背景', value: colorState.bg }
+  ],
+  palettes: true,
+  onColorChange: function (key, v) { setColorState(key, v); },
+  getParams: motionParams,
+  integerKeys: ['baseWidth', 'evenCount', 'ruleN', 'ruleDN', 'motDuration', 'motWidth', 'motHeight'],
+  apply: applyMotionParams,
+  play: function () { toggleMotionPreview(); },
+  frame: frameForExport,
+  meta: exportMeta
+});
+(function () { var k = Object.keys(Studio.SIZES)[0], s = Studio.SIZES[k]; setFrame(s[0], s[1], k); })();   // 既定の大きさ（4:5）で版面を置く
+
+/* --- パネル（段5・2026-09-25 UI再編。右パネルは「パス」（静的HTML）＋以下4節の固定5節。
+   採用根拠はnotes.md参照＝ユーザー「線幅によって奥行きが連動して変わるのが無くなった。
+   使いにくい。最適なUIに変えて」への対応。「選択した幅ポイント」の個別編集行は独立した節見出しを
+   持たず「線幅」節に統合（未選択時は非表示のまま・機能は維持）。 -------------------------- */
+var spec = [
+  { type: 'group', label: '映像' },
+  { type: 'range', key: 'motAngleXStart', label: '縦に回す 始点', unit: '°', min: -90, max: 90, step: 1, value: 0 },
+  { type: 'range', key: 'motAngleXEnd', label: '縦に回す 終点', unit: '°', min: -90, max: 90, step: 1, value: 0 },
+  { type: 'range', key: 'motAngleYStart', label: '横に回す 始点', unit: '°', min: -360, max: 360, step: 1, value: 0 },
+  { type: 'range', key: 'motAngleYEnd', label: '横に回す 終点', unit: '°', min: -360, max: 360, step: 1, value: 360 },
+  { type: 'range', key: 'motDepthStart', label: '深さ 始点', unit: '%', min: 0, max: 100, step: 1, integer: true, value: 60 },
+  { type: 'range', key: 'motDepthEnd', label: '深さ 終点', unit: '%', min: 0, max: 100, step: 1, integer: true, value: 60 },
+  { type: 'range', key: 'motDuration', label: '秒数', unit: '秒', min: 1, max: 30, step: 1, integer: true, value: 4 },
+  { type: 'select', key: 'motFps', label: 'fps', value: '24', options: [
+    { value: '24', label: '24' }, { value: '30', label: '30' }, { value: '60', label: '60' }
+  ] },
+  { type: 'select', key: 'motLoop', label: '反復', value: 'once', options: [
+    { value: 'once', label: '1回' }, { value: 'pingpong', label: '往復' }, { value: 'loop', label: 'ループ' }
+  ] },
+  { type: 'select', key: 'motEase', label: 'イージング', value: 'linear', options: [
+    { value: 'linear', label: '一定' }, { value: 'easeIn', label: 'ゆっくり始まる' },
+    { value: 'easeOut', label: 'ゆっくり終わる' }, { value: 'easeInOut', label: '両方' }
+  ] },
+  { type: 'select', key: 'motFormat', label: '形式', value: 'webm', options: [
+    { value: 'svgZip', label: 'SVG連番ZIP' }, { value: 'pngZip', label: 'PNG連番ZIP' },
+    { value: 'webm', label: 'webm' }, { value: 'mp4', label: 'mp4' }
+  ] },
+  { type: 'range', key: 'motWidth', label: '幅', unit: 'px', min: 100, max: 4000, step: 1, integer: true, value: 600 },
+  { type: 'range', key: 'motHeight', label: '高さ', unit: 'px', min: 100, max: 4000, step: 1, integer: true, value: 600 },
+  { type: 'select', key: 'motBg', label: '背景', value: 'orig', options: [
+    { value: 'orig', label: '元の色' }, { value: 'white', label: '白' }, { value: 'transparent', label: '透過' }
+  ] },
+  { type: 'button', key: 'motExportBtn', label: '映像を書き出す', onClick: exportMotion },
+  { type: 'button', key: 'motCloseBtn', label: '閉じる', onClick: function () { closeMotionSection(); } },
+
+  { type: 'group', label: '向き' },
+  { type: 'range', key: 'angleX', label: '縦に回す', unit: '°', min: -90, max: 90, step: 1, value: 0 },
+  { type: 'range', key: 'angleY', label: '横に回す', unit: '°', min: -180, max: 180, step: 1, value: 0 },
+  { type: 'checkbox', key: 'rotateMode', label: '回転', value: false },
+  { type: 'button', key: 'resetOrientBtn', label: '正面に戻す', onClick: resetOrientation },
+  { type: 'range', key: 'frontScale', label: '遠近で太さを変える', unit: '', min: 0, max: 2, step: 0.05, value: 0.35 },
+
+  { type: 'group', label: '線幅' },
+  { type: 'range', key: 'baseWidth', label: '基準線幅', unit: 'px', min: 1, max: 80, step: 1, integer: true, value: 6 },
+  { type: 'range', key: 'ptT', label: '位置', unit: '%', min: 0, max: 100, step: 1, value: 0 },
+  { type: 'range', key: 'ptLeft', label: '左幅', unit: 'px', min: 0, max: 120, step: 1, value: 8 },
+  { type: 'range', key: 'ptRight', label: '右幅', unit: 'px', min: 0, max: 120, step: 1, value: 8 },
+  { type: 'button', key: 'deletePt', label: '選択した点を削除', onClick: deleteSelected },
+  { type: 'select', key: 'pillarMode', label: '幅ポイントの置き方', value: 'even', options: [
+    { value: 'even', label: '等間隔' },
+    { value: 'anchor', label: 'アンカーポイント' },
+    { value: 'free', label: '自由' }
+  ] },
+  { type: 'range', key: 'evenCount', label: '本数', unit: '本', min: 2, max: 40, step: 1, integer: true, value: 8 },
+  { type: 'checkbox', key: 'splitLR', label: '左右を別々に', value: false },
+  { type: 'button', key: 'pickT0', label: '起点を指定', onClick: armPickT0 },
+  { type: 'button', key: 'reverseDir', label: '向きを反転', onClick: toggleReversed },
+  { type: 'select', key: 'rule', label: '規則', value: 'alt', options: [
+    { value: 'same', label: 'すべて同じ' },
+    { value: 'alt', label: '交互' },
+    { value: 'wave', label: '波' },
+    { value: 'ramp', label: 'だんだん' }
+  ] },
+  { type: 'range', key: 'ruleA', label: '幅1', unit: 'px', min: 0, max: 120, step: 1, value: 3 },
+  { type: 'range', key: 'ruleB', label: '幅2', unit: 'px', min: 0, max: 120, step: 1, value: 20 },
+  { type: 'range', key: 'ruleN', label: '山の数', unit: '回', min: 1, max: 12, step: 1, integer: true, value: 2 },
+  { type: 'button', key: 'applyRuleBtn', label: '適用', onClick: applyRuleToPillars },
+  { type: 'select', key: 'interp', label: '補間', value: 'catmull', options: [
+    { value: 'catmull', label: '柱を通す' },
+    { value: 'bspline', label: 'なめらか（Bスプライン）' }
+  ] },
+  { type: 'button', key: 'resetPts', label: '均等に戻す', onClick: resetPoints },
+
+  { type: 'group', label: '奥行き' },
+  { type: 'checkbox', key: 'depthLinked', label: '線幅に連動', value: true },
+  { type: 'range', key: 'depthSpanPct', label: '深さ', unit: '%', min: 0, max: 100, step: 1, integer: true, value: 60 },
+  { type: 'checkbox', key: 'depthInvert', label: '太い方を奥にする', value: false },
+  { type: 'select', key: 'ruleD', label: '規則（奥行き）', value: 'alt', options: [
+    { value: 'same', label: 'すべて同じ' },
+    { value: 'alt', label: '交互' },
+    { value: 'wave', label: '波' },
+    { value: 'ramp', label: 'だんだん' }
+  ] },
+  { type: 'range', key: 'ruleDA', label: '奥行き1', unit: '%', min: -50, max: 50, step: 1, value: -15 },
+  { type: 'range', key: 'ruleDB', label: '奥行き2', unit: '%', min: -50, max: 50, step: 1, value: 15 },
+  { type: 'range', key: 'ruleDN', label: '山の数', unit: '回', min: 1, max: 12, step: 1, integer: true, value: 2 },
+  { type: 'button', key: 'applyRuleDBtn', label: '適用', onClick: applyRuleToDepthPillars },
+  { type: 'select', key: 'interpD', label: '補間', value: 'catmull', options: [
+    { value: 'catmull', label: '柱を通す' },
+    { value: 'bspline', label: 'なめらか（Bスプライン）' }
+  ] },
+
+  { type: 'group', label: '表示' },
+  { type: 'checkbox', key: 'guide', label: '中心線と点を表示', value: true },
+  { type: 'checkbox', key: 'showFillLayer', label: '塗り層を表示', value: true },
+  { type: 'checkbox', key: 'showBand', label: '帯を表示', value: true },
+
+  { type: 'group', label: '書き出し' },
+  { type: 'range', key: 'fitTol', label: '帯のなめらかさ（許容誤差 px）', unit: 'px', min: 0.1, max: 1.0, step: 0.05, value: 0.5 }
+];
+var values = Studio.panel('#panel', spec, function (v, key) {
+  if (key === 'baseWidth') { render(); return; }
+  if (key === 'ptT' || key === 'ptLeft' || key === 'ptRight') { applyPanelToSelected(key); return; }
+  if (key === 'pillarMode') { updatePillarRowsVisibility(); regenerateAllPillars(); return; }
+  if (key === 'evenCount') { if (values.pillarMode === 'even') regenerateAllPillars(); return; }
+  if (key === 'rule') { updateRuleRowsVisibility(); return; }
+  if (key === 'ruleD') { updateRuleDRowsVisibility(); return; }
+  if (key === 'splitLR') { normalizeSplitLR(); return; }
+  if (key === 'depthLinked') { onDepthLinkedChange(); return; }
+  if (key === 'fitTol') { scheduleAnchorCount(); return; }
+  render();
+});
+
+function findRowByLabel(labelText, nth) {
+  var labels = document.querySelectorAll('#panel .sk-label');
+  var count = 0;
+  for (var i = 0; i < labels.length; i++) {
+    if (labels[i].textContent === labelText) {
+      if (!nth || count === nth) return labels[i].closest('.sk-row');
+      count++;
+    }
+  }
+  return null;
+}
+var selRows = [findRowByLabel('位置'), findRowByLabel('左幅'), findRowByLabel('右幅')];
+var delBtn = Array.prototype.find.call(document.querySelectorAll('#panel .sk-btn'), function (b) { return b.textContent === '選択した点を削除'; });
+function updateSelectedRowsVisibility() {
+  var show = state.selected >= 0;
+  selRows.forEach(function (row) { if (row) { row.hidden = !show; row.style.display = show ? '' : 'none'; } });
+  if (delBtn) delBtn.style.display = show ? '' : 'none';
+}
+updateSelectedRowsVisibility();
+
+/* --- 映像の入口は上部バーの「映像」1つ（2026-10-04 持ち主決定「入口を上部バーの映像1つに」）。
+   右パネルの「映像」節は既定で非表示。バーの「映像」を押すと開き（スクロール＋最初の項目へフォーカス）、
+   「閉じる」ボタンか Esc で閉じる。kit の「映像」ダイアログ（mp4/png）はこの画面では出さない
+   （kit側を変えずに、バーへの click を捕まえて差し替える）。書き出し本体はexportMotion（svgZip/pngZip/webm/mp4）。 --- */
+var motionSection = (function () {
+  var ttls = document.querySelectorAll('#panel .sk-grp > .sk-grp-ttl');
+  for (var i = 0; i < ttls.length; i++) if (ttls[i].textContent === '映像') return ttls[i].parentNode;
+  return null;
+})();
+if (motionSection) motionSection.style.display = 'none';
+function motionSectionOpen() { return !!motionSection && motionSection.style.display !== 'none'; }
+function openMotionSection() {
+  if (!motionSection) return;
+  motionSection.style.display = '';
+  motionSection.classList.remove('closed');
+  var t = motionSection.querySelector(':scope > .sk-grp-ttl');
+  if (t) t.setAttribute('aria-expanded', 'true');
+  motionSection.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  var first = motionSection.querySelector('input, select, button.sk-btn, button:not(.sk-grp-ttl)');
+  if (first && first.focus) first.focus({ preventScroll: true });
+}
+function closeMotionSection() {
+  if (!motionSectionOpen()) return false;
+  motionSection.style.display = 'none';
+  var vb = document.getElementById('video');
+  if (vb && vb.focus) vb.focus({ preventScroll: true });
+  return true;
+}
+(function () {
+  var barEl = document.getElementById('bar');
+  barEl.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest && e.target.closest('#video');
+    if (!b) return;
+    e.stopPropagation(); e.preventDefault();   // kit の汎用ダイアログ（mp4/png）は開かない
+    if (motionSectionOpen()) closeMotionSection(); else openMotionSection();
+  }, true);
+  var vb = document.getElementById('video');
+  if (vb) { vb.title = '映像を書き出す（右の設定を開く）'; vb.setAttribute('aria-label', '映像を書き出す'); }
+})();
+
+/* --- 段10: 帯のアンカー数（読み取り専用の行。実際に書き出すSVGの帯(g#band)を数える） ---------
+   書き出しは重い（密サンプル＋曲線フィット）ので、操作が止まって0.4秒後に1回だけ数える。
+   閉じたパスは始点と終点が同じ点なので1個として数える。 --- */
+var anchorTimer = null;
+var anchorRowEl = (function () {
+  var ttls = document.querySelectorAll('#panel .sk-grp > .sk-grp-ttl');
+  for (var i = 0; i < ttls.length; i++) {
+    if (ttls[i].textContent === '書き出し') {
+      var row = document.createElement('div');
+      row.className = 'sk-row sk-hint'; row.id = 'anchorCount'; row.setAttribute('aria-live', 'polite');
+      row.textContent = '帯のアンカー数: -';
+      ttls[i].parentNode.appendChild(row);
+      return row;
+    }
+  }
+  return null;
+})();
+function countPathAnchors(d) {
+  var total = 0;
+  String(d || '').split(/(?=M)/).forEach(function (sub) {
+    if (!/^M/.test(sub)) return;
+    var nums = sub.match(/-?\d*\.?\d+(?:e-?\d+)?/g) || [];
+    var cmds = sub.match(/[MLC]/g) || [];
+    var pts = [], k = 0;
+    cmds.forEach(function (c) {
+      var n = c === 'C' ? 3 : 1;
+      for (var j = 0; j < n; j++) { if (j === n - 1) pts.push([+nums[k + 2 * j], +nums[k + 2 * j + 1]]); }
+      k += 2 * n;
+    });
+    var n0 = pts.length;
+    if (n0 > 1 && Math.abs(pts[0][0] - pts[n0 - 1][0]) < 1e-6 && Math.abs(pts[0][1] - pts[n0 - 1][1]) < 1e-6) n0--;
+    total += n0;
+  });
+  return total;
+}
+function currentBandAnchorCount() {
+  if (!state.segsWorld) return null;
+  var svg = buildExportSVG(false);
+  var total = 0;
+  svg.querySelectorAll('#band path').forEach(function (pp) { total += countPathAnchors(pp.getAttribute('d')); });
+  document.body.removeChild(svg);
+  return total;
+}
+function updateAnchorCount() {
+  if (!anchorRowEl) return;
+  var n = null;
+  try { n = currentBandAnchorCount(); } catch (e) { n = null; }
+  anchorRowEl.textContent = '帯のアンカー数: ' + (n == null ? '-' : n);
+  anchorRowEl.dataset.count = n == null ? '' : String(n);
+}
+function scheduleAnchorCount() {
+  clearTimeout(anchorTimer);
+  anchorTimer = setTimeout(updateAnchorCount, 400);
+}
+
+/* --- 幅のグラフ: 条件表示（本数=等間隔のときだけ／波の回数=波のときだけ） ---------- */
+var evenCountRow = findRowByLabel('本数');
+function updatePillarRowsVisibility() {
+  var show = values.pillarMode === 'even';
+  if (evenCountRow) { evenCountRow.hidden = !show; evenCountRow.style.display = show ? '' : 'none'; }
+}
+
+/* --- 規則の数値ラベルは規則ごとに読み替える（.claude/rules/ui-concept-language.md §2）。
+   行の参照は最初のラベル文字列（spec初期値）で1回だけ取得し、以降はtextContentを直接書き換える
+   （findRowByLabelは現在のテキストで検索するため、書き換えた後は使えなくなるため）。 ------- */
+var ruleARow = findRowByLabel('幅1'), ruleALabel = ruleARow && ruleARow.querySelector('.sk-label');
+var ruleBRow = findRowByLabel('幅2'), ruleBLabel = ruleBRow && ruleBRow.querySelector('.sk-label');
+var ruleNRow = findRowByLabel('山の数', 0), ruleNLabel = ruleNRow && ruleNRow.querySelector('.sk-label');
+var ruleDARow = findRowByLabel('奥行き1'), ruleDALabel = ruleDARow && ruleDARow.querySelector('.sk-label');
+var ruleDBRow = findRowByLabel('奥行き2'), ruleDBLabel = ruleDBRow && ruleDBRow.querySelector('.sk-label');
+var ruleDNRow = findRowByLabel('山の数', 1), ruleDNLabel = ruleDNRow && ruleDNRow.querySelector('.sk-label');
+
+// 規則の数値ラベルは規則ごとに読み替える（Illustratorの線パネルの語感・短く普通の言葉に統一）
+var RULE_LABELS_WIDTH = {
+  same: { a: '幅' },
+  alt: { a: '幅1', b: '幅2' },
+  wave: { a: '最小幅', b: '最大幅', n: '山の数' },
+  ramp: { a: '始点の幅', b: '終点の幅' }
+};
+var RULE_LABELS_DEPTH = {
+  same: { a: '奥行き' },
+  alt: { a: '奥行き1', b: '奥行き2' },
+  wave: { a: '最小', b: '最大', n: '山の数' },
+  ramp: { a: '始点', b: '終点' }
+};
+function applyRuleLabels(map, rule, aLabel, bRow, bLabel, nRow, nLabel) {
+  var m = map[rule] || map.same;
+  if (aLabel) aLabel.textContent = m.a;
+  var showB = !!m.b;
+  if (bRow) { bRow.hidden = !showB; bRow.style.display = showB ? '' : 'none'; }
+  if (showB && bLabel) bLabel.textContent = m.b;
+  var showN = !!m.n && rule === 'wave';
+  if (nRow) { nRow.hidden = !showN; nRow.style.display = showN ? '' : 'none'; }
+  if (showN && nLabel) nLabel.textContent = m.n;
+}
+function updateRuleRowsVisibility() {
+  applyRuleLabels(RULE_LABELS_WIDTH, values.rule, ruleALabel, ruleBRow, ruleBLabel, ruleNRow, ruleNLabel);
+}
+function updateRuleDRowsVisibility() {
+  applyRuleLabels(RULE_LABELS_DEPTH, values.ruleD, ruleDALabel, ruleDBRow, ruleDBLabel, ruleDNRow, ruleDNLabel);
+}
+/* --- 段5: select行・ボタンをラベル文字列から探す（findRowByLabelのselect/ボタン版）。
+   同じ文字列が複数箇所にある場合（「補間」「適用」など）は出現順(nth・0始まり)で選ぶ。 --- */
+function findSelectRowByLabel(labelText, nth) {
+  var rows = document.querySelectorAll('#panel .sk-selectrow');
+  var count = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var span = rows[i].querySelector('span');
+    if (span && span.textContent === labelText) {
+      if (!nth || count === nth) return rows[i];
+      count++;
+    }
+  }
+  return null;
+}
+function findBtnByLabel(labelText, nth) {
+  var btns = document.querySelectorAll('#panel .sk-btn');
+  var count = 0;
+  for (var i = 0; i < btns.length; i++) {
+    if (btns[i].textContent === labelText) {
+      if (!nth || count === nth) return btns[i];
+      count++;
+    }
+  }
+  return null;
+}
+function setRowVisible(row, show) {
+  if (!row) return;
+  row.hidden = !show;
+  row.style.display = show ? '' : 'none';
+}
+
+/* --- 段5: 「奥行き」節の「線幅に連動」ON/OFFで、規則ベースの奥行き編集一式（規則select・
+   奥行き1/2・山の数・適用・補間）を出し分ける（採用根拠・仕様はnotes.md「段5」参照）。
+   連動ONのときは幅のグラフ1枚だけで奥行きも読めるため、奥行きのグラフ自体も隠す
+   （#stageの depth-graph-hidden クラスでCSS側が高さを再配分する）。 ------------------- */
+var ruleDSelectRow = findSelectRowByLabel('規則（奥行き）');
+var applyRuleDBtnEl = findBtnByLabel('適用', 1);
+var interpDSelectRow = findSelectRowByLabel('補間', 1);
+function updateDepthLinkVisibility() {
+  var linked = !!values.depthLinked;
+  setRowVisible(ruleDSelectRow, !linked);
+  setRowVisible(applyRuleDBtnEl, !linked);
+  setRowVisible(interpDSelectRow, !linked);
+  if (linked) {
+    setRowVisible(ruleDARow, false);
+    setRowVisible(ruleDBRow, false);
+    setRowVisible(ruleDNRow, false);
+  } else {
+    updateRuleDRowsVisibility(); // 規則（奥行き）の種類に応じて奥行き1/2・山の数を出し分ける
+  }
+  stage.classList.toggle('depth-graph-hidden', linked);
+}
+/* 連動OFFへ切り替えた瞬間、その時点の連動値（幅の柱ごとの位置tで評価した奥行き%）を
+   奥行きの柱へ引き継ぐ。ON→OFFの瞬間だけ呼ぶ（OFF→ONはグラフを隠すだけで値は封筒に残す）。 */
+function onDepthLinkedChange() {
+  if (!values.depthLinked) {
+    var widthPts = effectiveWidthPoints();
+    if (widthPts.length && state.outline) {
+      state.depthPoints = widthPts.map(function (p) { return { t: p.t, z: linkedDepthPctAtT(p.t) }; });
+    }
+  }
+  updateDepthLinkVisibility();
+  pushHistory();
+  render();
+}
+
+updatePillarRowsVisibility();
+updateRuleRowsVisibility();
+updateRuleDRowsVisibility();
+updateDepthLinkVisibility();
+
+/* --- 奥行きの数値はすべて「図形の長辺に対する%」（-50〜+50%）で持つ。pxは画面にもパネルにも
+   出さない（2026-09-24 変更・ユーザー指摘「奥行きのグラフの数値の幅が狭い」）。
+   3Dの回転計算だけ、実際のpx値が要るのでここで%→pxに変換する。 ------------------------- */
+/* 段6 性能修正（実測で発見）: shapeBBoxLongSide()はdepthPercentToPx()経由で
+   computeProjection()の毎サンプルループ内から呼ばれていた（線幅に連動ON時、584サンプルの
+   帯で1フレームあたり584回）。中身は全サンプルをmap+Math.max/min.applyし直す計算＝
+   サンプル数に対してO(n)、それを毎サンプル呼ぶのでフレーム全体ではO(n^2)。
+   実測: 12本・(30,40)回転で1フレーム60.8ms（うちこの関数だけで29.9ms）→
+   キャッシュ後は同条件で全体0.6ms程度まで落ちた（詳細はnotes.md「段6」参照）。
+   state.outline（参照）が変わった時だけ再計算し、それ以外は前回値を使い回す。 */
+var bboxCache = { outline: null, value: HALF * 2 };
+function shapeBBoxLongSide() {
+  var out = state.outline;
+  if (bboxCache.outline === out) return bboxCache.value;
+  var value;
+  if (!out || !out.samples || !out.samples.length) value = HALF * 2;
+  else {
+    var xs = out.samples.map(function (p) { return p[0]; });
+    var ys = out.samples.map(function (p) { return p[1]; });
+    var w = Math.max.apply(null, xs) - Math.min.apply(null, xs);
+    var h = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+    value = Math.max(w, h, 1);
+  }
+  bboxCache.outline = out; bboxCache.value = value;
+  return value;
+}
+function depthPercentToPx(pct) { return (pct / 100) * shapeBBoxLongSide(); }
+var DEPTH_AXIS_MAX = 50; // 奥行きのグラフ・規則の数値・ハンドルの可動域は常に-50〜+50%固定
+
+function applyPanelToSelected(key) {
+  if (state.selected < 0) return;
+  var p = state.points[state.selected];
+  if (key === 'ptT') p.t = values.ptT / 100;
+  if (key === 'ptLeft') p.left = values.ptLeft;
+  if (key === 'ptRight') p.right = values.ptRight;
+  sortPointsKeepSelection();
+  pushHistory();
+  render();
+}
+function syncPanelFromSelected() {
+  if (state.selected < 0) return;
+  var p = state.points[state.selected];
+  values.set('ptT', Math.round(p.t * 100));
+  values.set('ptLeft', Math.round(p.left));
+  values.set('ptRight', Math.round(p.right));
+}
+
+/* --- 取り消し履歴（⌘Z/⇧⌘Z・006_ツールの規格 §7） -------------------------- */
+var hist = Studio.history(100);
+var histTimer = null;
+function pushHistory() {
+  clearTimeout(histTimer);
+  histTimer = setTimeout(function () {
+    hist.push({
+      points: state.points, baseWidth: values.baseWidth, sourceText: state.sourceText,
+      t0: state.t0, reversed: state.reversed,
+      pillarMode: values.pillarMode, evenCount: values.evenCount, splitLR: values.splitLR,
+      rule: values.rule, ruleA: values.ruleA, ruleB: values.ruleB, ruleN: values.ruleN,
+      depthPoints: state.depthPoints, ruleD: values.ruleD, ruleDA: values.ruleDA, ruleDB: values.ruleDB, ruleDN: values.ruleDN,
+      depthLinked: values.depthLinked, depthInvert: values.depthInvert, depthSpanPct: values.depthSpanPct,
+      angleX: values.angleX, angleY: values.angleY, frontScale: values.frontScale,
+      interp: values.interp, interpD: values.interpD, fitTol: values.fitTol,
+      fill: colorState.fill, fillLayer: colorState.fillLayer, bg: colorState.bg // §0: 色も⌘Zの対象に含める
+    });
+  }, 120);
+}
+function applyHistState(s) {
+  if (!s) return;
+  values.set('baseWidth', s.baseWidth);
+  if (s.sourceText !== state.sourceText) loadSourceSvg(s.sourceText, true);
+  state.points = s.points.map(function (p) { return { t: p.t, left: p.left, right: p.right }; });
+  state.t0 = s.t0 || 0; state.reversed = !!s.reversed;
+  if (s.pillarMode != null) values.set('pillarMode', s.pillarMode);
+  if (s.evenCount != null) values.set('evenCount', s.evenCount);
+  if (s.splitLR != null) values.set('splitLR', s.splitLR);
+  if (s.rule != null) values.set('rule', s.rule);
+  if (s.ruleA != null) values.set('ruleA', s.ruleA);
+  if (s.ruleB != null) values.set('ruleB', s.ruleB);
+  if (s.ruleN != null) values.set('ruleN', s.ruleN);
+  state.depthPoints = (s.depthPoints || []).map(function (p) { return { t: p.t, z: p.z }; });
+  if (s.ruleD != null) values.set('ruleD', s.ruleD);
+  if (s.ruleDA != null) values.set('ruleDA', s.ruleDA);
+  if (s.ruleDB != null) values.set('ruleDB', s.ruleDB);
+  if (s.ruleDN != null) values.set('ruleDN', s.ruleDN);
+  if (s.depthLinked != null) values.set('depthLinked', s.depthLinked);
+  if (s.depthInvert != null) values.set('depthInvert', s.depthInvert);
+  if (s.depthSpanPct != null) values.set('depthSpanPct', s.depthSpanPct);
+  if (s.angleX != null) values.set('angleX', s.angleX);
+  if (s.angleY != null) values.set('angleY', s.angleY);
+  if (s.frontScale != null) values.set('frontScale', s.frontScale);
+  if (s.interp != null) values.set('interp', s.interp);
+  if (s.interpD != null) values.set('interpD', s.interpD);
+  if (s.fitTol != null) values.set('fitTol', s.fitTol);
+  if (s.fill != null) colorState.fill = s.fill;
+  if (s.fillLayer != null) colorState.fillLayer = s.fillLayer;
+  if (s.bg != null) colorState.bg = s.bg;
+  if (sb && sb.colors) { sb.colors.set('fill', colorState.fill); sb.colors.set('fillLayer', colorState.fillLayer); sb.colors.set('bg', colorState.bg); }
+  updatePillarRowsVisibility();
+  updateRuleRowsVisibility();
+  updateRuleDRowsVisibility();
+  updateDepthLinkVisibility();
+  state.selected = -1;
+  updateSelectedRowsVisibility();
+  render();
+}
+
+/* --- 取り込み ------------------------------------------------------------- */
+function setError(msg) { errBar.textContent = msg; }
+function clearError() { errBar.textContent = ''; }
+
+function scaleSeg(s, k) {
+  function p(pt) { return [pt[0] * k, pt[1] * k]; }
+  return s.type === 'L' ? { type: 'L', a: p(s.a), b: p(s.b) } : { type: 'C', p0: p(s.p0), p1: p(s.p1), p2: p(s.p2), p3: p(s.p3) };
+}
+
+function loadSourceSvg(text, skipHistory, shrink) {
+  var shapes = null;
+  try { shapes = window.SvgIn.parse(text); } catch (e) { shapes = null; }
+  if (!shapes || !shapes.length) { setError('SVGを読めませんでした（対応する図形が見つからないか、SVGの形式が不正です）'); return false; }
+  if (shapes.length !== 1) {
+    setError('閉じたパス1本だけ受け付けます（' + shapes.length + '本あります）');
+    return false;
+  }
+  if (!shapes[0].closed) {
+    setError('開いたパスです。閉じたパスを貼ってください');
+    return false;
+  }
+  var segsWorld = shapes[0].segs.map(function (s) { return scaleSeg(s, HALF * (shrink || 1)); });
+  state.segsWorld = segsWorld;
+  state.baseD = window.Geom.toD(segsWorld, true);
+  state.sourceText = text;
+  if (!skipHistory) { state.points = []; state.selected = -1; updateSelectedRowsVisibility(); }
+  clearError();
+  render();
+  if (!skipHistory) pushHistory();
+  return true;
+}
+
+/* --- 段4: 補間の切替（柱を通す=Catmull-Rom／なめらか=周期一様3次Bスプライン）。
+   3D回転パイプラインと幅・奥行きのグラフの曲線表示に使う。正面（角度0,0）の輪郭は
+   Outline.buildOutline（smoothstep）のまま変えない＝x,yの見え方は絶対に変わらない
+   （ユーザー決定「元の平面からの見え方キープ」）。 --------------------------------- */
+function interpAt(sortedPoints, t, baseWidth, mode) {
+  if (mode === 'bspline' && sortedPoints.length >= 3) {
+    var ts = sortedPoints.map(function (p) { return p.t; });
+    var leftVals = sortedPoints.map(function (p) { return p.left; });
+    var rightVals = sortedPoints.map(function (p) { return p.right; });
+    return { left: Profile.bsplineClosed(leftVals, ts, t), right: Profile.bsplineClosed(rightVals, ts, t) };
+  }
+  return Outline.widthAtSmooth(sortedPoints, t, baseWidth);
+}
+
+/* --- 描画 ------------------------------------------------------------- */
+/* --- 段3: 奥行き・回転・投影 --------------------------------------------
+   中心線の密サンプル (x,y,z(t)) を2つの角度で回転→正射投影→2D点列。
+   帯（幅の輪郭）は投影後の中心線に対して法線を取り直して作る（w(t)は平面上の値のまま）。
+   正面（両角度0）のときは Outline.buildOutline の結果をそのまま使う（1本の帯・軽量・
+   既存の出力とビット互換）。回っているときだけ小片に分けて前後関係を付ける。 --- */
+/* --- インスタONで絵を版面に収める（006 §0・Studio.fitInto）。------------------
+   「回しても変わらない外接」= 中心線サンプル（回転角より前・回しても値は変わらない）に
+   奥行きzと帯の半幅を足した、原点からの3D距離の最大を半径とする円。
+   AとBが記録済みならその両方の半径の大きい方を使う（kit側sb.getAB()。A/B再生・映像
+   書き出し中に揺れないため）。ドラッグ中は直前の値を使い回す（掴んだ点が逃げないように）。 --- */
+function stableRawPoints3D() {
+  var out = state.outline; if (!out) return [];
+  var ts = out.ts, baseSamples = out.samples;
+  var spanFactor = (values.depthSpanPct != null ? values.depthSpanPct : 60) / 100;
+  var zAt;
+  if (values.depthLinked) {
+    var pctArr = linkedDepthPctArray(ts);
+    zAt = pctArr.map(function (pct) { return depthPercentToPx(pct * spanFactor); });
+  } else {
+    var depthPts = effectiveDepthPoints();
+    var sortedDepth = depthPts.slice().sort(function (a, b) { return a.t - b.t; }).map(function (p) { return { t: p.t, left: p.z, right: p.z }; });
+    zAt = baseSamples.map(function (p, i) {
+      var pct = sortedDepth.length ? interpAt(sortedDepth, ts[i], 0, values.interpD).left : 0;
+      return depthPercentToPx(pct * spanFactor);
+    });
+  }
+  var widthPts = effectiveWidthPoints();
+  var sortedWidth = widthPts.slice().sort(function (a, b) { return a.t - b.t; });
+  return baseSamples.map(function (p, i) {
+    var w = interpAt(sortedWidth, ts[i], values.baseWidth, values.interp);
+    return { x: p[0], y: p[1], z: zAt[i] || 0, hw: Math.max(w.left, w.right) };
+  });
+}
+function safeRadiusFromParamsSnapshot(p) {
+  var before = null;
+  if (p) { before = {}; Object.keys(values).forEach(function (k) { before[k] = values[k]; }); applyParamsToState(p); }
+  var pts = stableRawPoints3D();
+  var R = 0;
+  pts.forEach(function (pt) {
+    var d = Math.sqrt(pt.x * pt.x + pt.y * pt.y + pt.z * pt.z) + (pt.hw || 0);
+    if (d > R) R = d;
+  });
+  if (before) Object.keys(before).forEach(function (k) { values.set(k, before[k]); });
+  return Math.max(R, 1e-6);
+}
+function safeRadius3D() {
+  var ab = sb.getAB();
+  if (ab.A && ab.B) return Math.max(safeRadiusFromParamsSnapshot(ab.A), safeRadiusFromParamsSnapshot(ab.B));
+  return safeRadiusFromParamsSnapshot(null);
+}
+function insta() { return !document.body.classList.contains('insta-off'); }
+var cachedFitSS = null, isDraggingSS = false;
+function computeFitTransformSS() {
+  if (!insta()) return null;
+  if (isDraggingSS && cachedFitSS) return cachedFitSS;
+  var R = safeRadius3D();
+  var fb = frameBox || { x: -HALF, y: -HALF, w: HALF * 2, h: HALF * 2 };
+  cachedFitSS = Studio.fitInto({ x: -R, y: -R, w: 2 * R, h: 2 * R }, { x: fb.x, y: fb.y, w: fb.w, h: fb.h }, 0.08);
+  return cachedFitSS;
+}
+
+function computeProjection() {
+  var out = state.outline; // Outline.buildOutline() 済み（samples/ts/normalsはbuildOutline基準）
+  var ts = out.ts, baseSamples = out.samples;
+  var isFront = Math.abs(values.angleX) < 1e-9 && Math.abs(values.angleY) < 1e-9;
+  var spanFactor = (values.depthSpanPct != null ? values.depthSpanPct : 60) / 100; // 「深さ」＝軸いっぱい(-50〜+50%)に対する掛け目
+  var zAt;
+  if (values.depthLinked) {
+    // 段5:「線幅に連動」ON。幅の曲線（現在の補間モード込み）を毎フレーム密にサンプルし、
+    // その最小→最大を−50〜+50%に写す（Depth.linkedDepth）。奥行きの柱(state.depthPoints)は使わない。
+    var pctArr = linkedDepthPctArray(ts);
+    zAt = pctArr.map(function (pct) { return depthPercentToPx(pct * spanFactor); });
+  } else {
+    // 連動OFF: 奥行きの柱（規則で作った独自の曲線）をそのまま使う（従来どおり）。
+    var depthPts = effectiveDepthPoints(); // z は%（-50〜+50）
+    var sortedDepth = depthPts.slice().sort(function (a, b) { return a.t - b.t; }).map(function (p) { return { t: p.t, left: p.z, right: p.z }; });
+    zAt = baseSamples.map(function (p, i) {
+      var pct = sortedDepth.length ? interpAt(sortedDepth, ts[i], 0, values.interpD).left : 0;
+      return depthPercentToPx(pct * spanFactor); // 3D計算だけpxに変換
+    });
+  }
+
+  if (isFront) {
+    // 正面: 奥行き0相当。既存の帯（out.left/right/d）をそのまま使う軽量パス。
+    return {
+      ts: ts, proj2D: baseSamples, z: zAt.map(function () { return 0; }), left: out.left, right: out.right,
+      isFront: true, fillD: state.baseD, bandD: out.d
+    };
+  }
+
+  var pts3D = baseSamples.map(function (p, i) { return [p[0], p[1], zAt[i]]; });
+  var ts3D = ts;
+  var rotated = Depth.rotateProject(pts3D, values.angleX, values.angleY);
+  var proj2D = rotated.map(function (r) { return [r.x, r.y]; });
+  var zArr = rotated.map(function (r) { return r.z; });
+  var normals2 = Outline.normalsFor(proj2D);
+  // 固定軸の50%分のpxで正規化してからsを掛ける＝「奥行きの深さ」設定を変えても効き方が一定になる
+  var halfSpanForScale = depthPercentToPx(DEPTH_AXIS_MAX) || 1;
+  var widthPts = effectiveWidthPoints();
+  var sortedWidth = widthPts.slice().sort(function (a, b) { return a.t - b.t; });
+  var leftW = [], rightW = [];
+  for (var i = 0; i < proj2D.length; i++) {
+    var w = interpAt(sortedWidth, ts3D[i], values.baseWidth, values.interp);
+    var sFactor = 1 + (values.frontScale || 0) * (zArr[i] / halfSpanForScale);
+    leftW.push(Math.max(0, w.left * sFactor));
+    rightW.push(Math.max(0, w.right * sFactor));
+  }
+  // 段4: 折り返し（法線が急に回る箇所）を半円弧で丸める＝「中心線に沿って円を掃いた形」
+  var rounded = Depth.roundHairpinCorners(proj2D, normals2, leftW, rightW, CORNER_THRESHOLD_DEG, CORNER_ARC_STEPS);
+  var left = rounded.left, right = rounded.right;
+  var bandZ = rounded.sourceIdx.map(function (idx) { return zArr[idx]; });
+  var fillSegs = Outline.catmullRomClosedSegments(proj2D);
+  var fillD = Outline.segsToClosedD(fillSegs);
+  return { ts: ts3D, proj2D: proj2D, z: zArr, left: left, right: right, bandZ: bandZ, isFront: false, fillD: fillD };
+}
+
+/* 段8: 自己接近の無い全周1本の帯を、直線つなぎの閉じたリングとして描く（画面表示・PNG/動画用。
+   pieceDのような「開いたリボン＋両端キャップ」構造ではなく、単純な閉じた多角形を1本返す
+   （呼び出し側で外周・内周の2本をそれぞれこの関数で作り、内周は逆順で渡して重ねる）。 */
+function plainClosedD(pts) {
+  function f(p) { return p[0].toFixed(2) + ' ' + p[1].toFixed(2); }
+  var d = 'M' + f(pts[0]);
+  for (var i = 1; i < pts.length; i++) d += 'L' + f(pts[i]);
+  return d + 'Z';
+}
+/* 投影後の帯を小片に分けたSVG片のd文字列（開いた短冊。直線でつなぐ＝十分に小さいので滑らかに見える） */
+function pieceD(left, right, idxs) {
+  function f(p) { return p[0].toFixed(2) + ' ' + p[1].toFixed(2); }
+  var d = 'M' + f(left[idxs[0]]);
+  for (var i = 1; i < idxs.length; i++) d += 'L' + f(left[idxs[i]]);
+  for (var j = idxs.length - 1; j >= 0; j--) d += 'L' + f(right[idxs[j]]);
+  return d + 'Z';
+}
+/* 段6: 書き出し専用・小片ごとに外周・内周を曲線フィットしてアンカー数を減らす版
+   （画面表示のpieceDはそのまま・直線つなぎ）。小片はもともと数点しかないので大抵1〜2本の
+   ベジェに収まる。小片どうしの継ぎ目（前後関係の演出上のseam）はそのまま角として残す
+   （ユーザー決定の「角として扱わない」対象は丸めた折り返し部だけ・小片境界は含まない）。 */
+function pieceDFitted(left, right, idxs, tol) {
+  function f(p) { return p[0].toFixed(2) + ' ' + p[1].toFixed(2); }
+  var leftPts = idxs.map(function (i) { return left[i]; });
+  var rightPts = idxs.slice().reverse().map(function (i) { return right[i]; });
+  var segsL = Fit.fitOpenPolyline(leftPts, tol);
+  var segsR = Fit.fitOpenPolyline(rightPts, tol);
+  var d = 'M' + f(leftPts[0]);
+  segsL.forEach(function (s) { d += 'C' + f(s.p1) + ' ' + f(s.p2) + ' ' + f(s.p3); });
+  d += 'L' + f(rightPts[0]); // 遠い側の端（左端→右端）は直線でつなぐ（元のpieceDと同じ）
+  segsR.forEach(function (s) { d += 'C' + f(s.p1) + ' ' + f(s.p2) + ' ' + f(s.p3); });
+  return d + 'Z'; // 近い側の端（右端→左端の始点）もZの直線でつなぐ（元のpieceDと同じ）
+}
+
+/* 段6: 閉じた点列 → フィット済みのd文字列（forExportのときだけ呼ぶ。画面表示は密サンプルの
+   ままOutline.catmullRomClosedSegmentsを使う＝この関数は書き出し専用）。 */
+/* 段10: 曲線フィットの許容誤差（パネルの「帯のなめらかさ」）。未設定・不正値は既定0.5。 */
+function fitTolNow() {
+  var v = (typeof values !== 'undefined' && values) ? values.fitTol : null;
+  return (typeof v === 'number' && isFinite(v) && v > 0) ? v : FIT_TOL_DEFAULT;
+}
+function fittedClosedD(pts) {
+  var segs = Fit.fitClosedPolyline(pts, fitTolNow());
+  return Fit.segsToD(segs, true);
+}
+
+function buildLayers(proj, forExport, rasterSeal) {
+  // 戻り値: {fillEl, bandEl, centerEl}（<g>要素。呼び出し側がSVGに追加する）
+  var fillD = forExport ? fittedClosedD(proj.proj2D) : proj.fillD;
+  var gFill = document.createElementNS(SVGNS, 'g'); gFill.id = 'fill';
+  var pFill = document.createElementNS(SVGNS, 'path');
+  pFill.setAttribute('d', fillD);
+  pFill.setAttribute('fill', colorState.fillLayer === 'none' ? 'none' : colorState.fillLayer);
+  pFill.setAttribute('fill-rule', 'evenodd');
+  gFill.appendChild(pFill);
+
+  var gBand = document.createElementNS(SVGNS, 'g'); gBand.id = 'band';
+  var fillColor = colorState.fill === 'none' ? 'none' : colorState.fill;
+  if (proj.isFront) {
+    var pBand = document.createElementNS(SVGNS, 'path');
+    pBand.setAttribute('class', 'fillshape');
+    if (forExport) {
+      // 段6: 外周(left)・内周(right)をそれぞれ閉曲線としてフィットし直す（画面はproj.bandDのまま）
+      pBand.setAttribute('d', fittedClosedD(proj.left) + ' ' + fittedClosedD(proj.right.slice().reverse()));
+    } else {
+      pBand.setAttribute('d', proj.bandD);
+    }
+    pBand.setAttribute('fill', fillColor);
+    pBand.setAttribute('fill-rule', 'nonzero');
+    gBand.appendChild(pBand);
+  } else {
+    // 段7-1: 小片は「重なる所だけ」切る（固定64分割は廃止）。中心線相当（left/rightの中点）と
+    // 半幅（left-right間距離の半分）から、自分自身に近づく区間だけ検出して細かく割る。
+    var midSamples = [], halfWidths = [];
+    for (var mi = 0; mi < proj.left.length; mi++) {
+      var L = proj.left[mi], R = proj.right[mi];
+      midSamples.push([(L[0] + R[0]) / 2, (L[1] + R[1]) / 2]);
+      halfWidths.push(Math.hypot(L[0] - R[0], L[1] - R[1]) / 2);
+    }
+    // 段7-3: 動画・PNG（ラスタ化）だけ小片の重なりを2サンプルにし、同色0.5pxのstroke
+    // （stroke-linejoin round）を足して継ぎ目（白い細線）を埋める。SVG書き出しはstrokeを
+    // 付けない（Illustratorで合体して使うため・ユーザー決定）。
+    var split = Depth.splitBandAdaptive(midSamples, halfWidths, proj.bandZ || proj.z, { overlap: rasterSeal ? 3 : 1 });
+    // 段8で発見した実バグ: 自己接近が一度も無い形（回しても1個の片のまま）のとき、
+    // splitBandAdaptiveはidxsに折り返し用の重ね点を足さず[0..n-1]をそのまま返す
+    // （隣に別の片が無い＝重ねる相手がいないため、意図的に足していない）。この1個の片を
+    // 従来のpieceD（帯＝開いたリボン＋両端をまっすぐ閉じる構造）で描くと、indices[0]と
+    // indices[last]は実際には隣り合う密サンプル同士（弧長で1コマぶんしか離れていない）
+    // なのに、それぞれの端で独立に「左右をまっすぐ結ぶキャップ」を描いてしまい、
+    // 2つのキャップの間に細い隙間が残っていた（ユーザー報告「始点だけ角がつく／
+    // 動画末尾フレームの隙間」の正体＝どちらも絶対t=0（配列の継ぎ目）に固定で出ていた。
+    // t0を動かしても隙間の画面位置が動かないことを確認して切り分けた）。
+    // 修正: 1個の片が輪郭全周（indices.length===n）のときだけ、リボン構造をやめて
+    // 前面表示と同じ「外周の閉じたリング＋内周の閉じたリング（逆回り）」の2本構成にする
+    // （キャップという概念自体を無くす＝継ぎ目が原理的に出ない）。
+    var isFullLoopSinglePiece = split.sequential.length === 1 && split.sequential[0].indices.length === proj.left.length;
+    if (isFullLoopSinglePiece) {
+      var p = document.createElementNS(SVGNS, 'path');
+      if (forExport) {
+        p.setAttribute('d', fittedClosedD(proj.left) + ' ' + fittedClosedD(proj.right.slice().reverse()));
+      } else {
+        p.setAttribute('d', plainClosedD(proj.left) + ' ' + plainClosedD(proj.right.slice().reverse()));
+      }
+      p.setAttribute('fill', fillColor);
+      p.setAttribute('fill-rule', 'nonzero');
+      if (rasterSeal && fillColor !== 'none') {
+        p.setAttribute('stroke', fillColor);
+        p.setAttribute('stroke-width', '0.5');
+        p.setAttribute('stroke-linejoin', 'round');
+      }
+      gBand.appendChild(p);
+    } else {
+      split.byDepth.forEach(function (piece) {
+        var p = document.createElementNS(SVGNS, 'path');
+        p.setAttribute('d', forExport ? pieceDFitted(proj.left, proj.right, piece.indices, fitTolNow()) : pieceD(proj.left, proj.right, piece.indices));
+        p.setAttribute('fill', fillColor);
+        p.setAttribute('fill-rule', 'nonzero');
+        if (rasterSeal && fillColor !== 'none') {
+          p.setAttribute('stroke', fillColor);
+          p.setAttribute('stroke-width', '0.5');
+          p.setAttribute('stroke-linejoin', 'round');
+        }
+        gBand.appendChild(p);
+      });
+    }
+  }
+
+  var gCenter = document.createElementNS(SVGNS, 'g'); gCenter.id = 'center';
+  var pCenter = document.createElementNS(SVGNS, 'path');
+  pCenter.setAttribute('class', 'center');
+  pCenter.setAttribute('stroke', '#999999'); pCenter.setAttribute('stroke-width', '0.5'); pCenter.setAttribute('fill', 'none');
+  if (forExport) {
+    pCenter.setAttribute('d', fillD); // fillDと同じ点列(proj.proj2D)を段6でフィット済み＝使い回す
+  } else {
+    var centerSegs = Outline.catmullRomClosedSegments(proj.proj2D);
+    pCenter.setAttribute('d', Outline.segsToClosedD(centerSegs));
+  }
+  gCenter.appendChild(pCenter);
+
+  return { fillEl: gFill, bandEl: gBand, centerEl: gCenter };
+}
+
+/* 段6: ドラッグ中の連続pointermoveをrequestAnimationFrameで1フレーム1回に合流させる。
+   ドラッグ操作（点・回転・グラフハンドル）だけに使う（パネル操作・ボタンは従来どおり即render）。
+   ポインタが動くたびに毎回render()していたのを、次の描画フレームまでにまとめる＝
+   イベント発生レートが画面のフレームレートより高い環境（高頻度pointermove）での重さを減らす。 */
+var renderScheduled = false;
+function scheduleRender() {
+  if (renderScheduled) return;
+  renderScheduled = true;
+  requestAnimationFrame(function () { renderScheduled = false; render(); });
+}
+
+/* 段6 性能改善: 平坦化・弧長パラメータ・法線（パス=segsWorldだけに依存し、
+   baseWidth/points/角度/奥行きが変わっても変化しない）を、segsWorldの参照が
+   変わらない限りキャッシュして使い回す（毎render()ごとの再平坦化をやめる）。 */
+var geomCache = { segs: null, geom: null };
+function getGeomCached() {
+  if (geomCache.segs !== state.segsWorld) {
+    geomCache.geom = Outline.computeGeom(state.segsWorld, TOL, MAX_LINE_STEP);
+    geomCache.segs = state.segsWorld;
+  }
+  return geomCache.geom;
+}
+
+function render() {
+  canvas.innerHTML = '';
+  // §13 VID-01: 背景は版面の中だけに塗る。「なし」はCSSの既定（var(--surface)）に戻す。
+  if (frameBox && colorState.bg && colorState.bg !== 'none') {
+    var fbg = document.createElementNS(SVGNS, 'rect');
+    fbg.setAttribute('x', frameBox.x); fbg.setAttribute('y', frameBox.y);
+    fbg.setAttribute('width', frameBox.w); fbg.setAttribute('height', frameBox.h);
+    fbg.setAttribute('fill', colorState.bg); fbg.setAttribute('pointer-events', 'none');
+    canvas.appendChild(fbg);
+  }
+  drawFrameGuide();
+  canvasArtGroup = null;
+  if (!state.segsWorld) return;
+  var out = Outline.buildOutline(state.segsWorld, values.baseWidth, state.points, { tol: TOL, maxLineStep: MAX_LINE_STEP, geom: getGeomCached() });
+  state.outline = out;
+  var proj = computeProjection();
+  state.proj = proj;
+
+  // 絵（塗り層・帯・中心線・アンカー）を版面に収めるグループ（006 §0）。ポインタのCTM
+  // 逆変換もこのグループを基準にする（svgPointFromEvent）。
+  canvasArtGroup = document.createElementNS(SVGNS, 'g');
+  canvasArtGroup.setAttribute('class', 'fit-art');
+  var fitSS = computeFitTransformSS();
+  if (fitSS) canvasArtGroup.setAttribute('transform', fitSS.transform);
+  canvas.appendChild(canvasArtGroup);
+
+  var layers = buildLayers(proj, false);
+  if (values.showFillLayer) canvasArtGroup.appendChild(layers.fillEl);
+  if (values.showBand) canvasArtGroup.appendChild(layers.bandEl);
+
+  if (values.guide) {
+    canvasArtGroup.appendChild(layers.centerEl);
+
+    var gPts = document.createElementNS(SVGNS, 'g');
+    gPts.setAttribute('id', 'ptsLayer');
+    state.points.forEach(function (p, i) {
+      var pos = projPointAt(p.t);
+      var g = document.createElementNS(SVGNS, 'g');
+      g.setAttribute('class', 'pt' + (i === state.selected ? ' sel' : ''));
+      g.dataset.idx = String(i);
+      var c = document.createElementNS(SVGNS, 'circle');
+      c.setAttribute('cx', pos[0]); c.setAttribute('cy', pos[1]); c.setAttribute('r', 6);
+      g.appendChild(c);
+      gPts.appendChild(g);
+    });
+    canvasArtGroup.appendChild(gPts);
+
+    // 起点マーク（▶）。幅のグラフの横軸0%はここ
+    var t0pos = projPointAt(state.t0);
+    var t0n = sampleAt(state.t0);
+    if (t0n) {
+      var ang = Math.atan2(t0n.n[1], t0n.n[0]) - Math.PI / 2; // 進行方向（接線・平面基準の近似）
+      var tri = document.createElementNS(SVGNS, 'path');
+      var s = 9;
+      tri.setAttribute('d', 'M ' + s + ' 0 L ' + (-s * 0.6) + ' ' + (s * 0.7) + ' L ' + (-s * 0.6) + ' ' + (-s * 0.7) + ' Z');
+      tri.setAttribute('class', 't0mark');
+      tri.setAttribute('transform', 'translate(' + t0pos[0] + ' ' + t0pos[1] + ') rotate(' + (ang * 180 / Math.PI) + ')');
+      canvasArtGroup.appendChild(tri);
+    }
+  }
+  renderGraph();
+  renderDepthGraph();
+  scheduleAnchorCount();
+}
+
+/* --- 幅のグラフの描画（キャンバスの下・イージングカーブエディタと同じ見え方） ------
+   横軸=表示t（起点t0・向きreversed基準の0..1）。縦軸=幅(px)。
+   左右対称のときは1本、「左右を別々にする」ONのときは2本（左・右）の折れ線＋ハンドル。 -- */
+function graphX(disp) { return GRAPH_PAD_X + disp * (GRAPH_W - GRAPH_PAD_X * 2); }
+function graphMaxW() {
+  var m = values.baseWidth || 6;
+  effectiveWidthPoints().forEach(function (p) { m = Math.max(m, p.left, p.right); });
+  return Math.max(20, m * 1.25);
+}
+function graphY(w, maxW) { return GRAPH_H - GRAPH_PAD_B - (w / maxW) * (GRAPH_H - GRAPH_PAD_B - GRAPH_PAD_T); }
+
+function renderGraph() {
+  graph.innerHTML = '';
+  if (!state.segsWorld) return;
+  var maxW = graphMaxW();
+  var effPoints = effectiveWidthPoints();
+  var sortedAbs = effPoints.slice().sort(function (a, b) { return a.t - b.t; });
+
+  // 目盛線（柱の位置に立つ縦線）
+  var gTicks = document.createElementNS(SVGNS, 'g');
+  effPoints.forEach(function (p) {
+    var disp = Profile.toDisplayT(p.t, state.t0, state.reversed);
+    var x = graphX(disp);
+    var l = document.createElementNS(SVGNS, 'line');
+    l.setAttribute('class', 'gtick');
+    l.setAttribute('x1', x); l.setAttribute('y1', GRAPH_PAD_T); l.setAttribute('x2', x); l.setAttribute('y2', GRAPH_H - GRAPH_PAD_B);
+    gTicks.appendChild(l);
+  });
+  graph.appendChild(gTicks);
+
+  // 補間曲線（outline.js の widthAt と同じ補間を、表示t刻みでサンプルして薄く描く）
+  var N = 240;
+  function curvePath(side) {
+    var d = '';
+    for (var i = 0; i <= N; i++) {
+      var disp = i / N;
+      var abs = Profile.toAbsoluteT(disp, state.t0, state.reversed);
+      var w = interpAt(sortedAbs, abs, values.baseWidth, values.interp);
+      var v = side === 'right' ? w.right : w.left;
+      var x = graphX(disp), y = graphY(v, maxW);
+      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1);
+    }
+    return d;
+  }
+  var curveL = document.createElementNS(SVGNS, 'path');
+  curveL.setAttribute('class', 'gcurve');
+  curveL.setAttribute('d', curvePath('left'));
+  graph.appendChild(curveL);
+  if (values.splitLR) {
+    var curveR = document.createElementNS(SVGNS, 'path');
+    curveR.setAttribute('class', 'gcurve right');
+    curveR.setAttribute('d', curvePath('right'));
+    graph.appendChild(curveR);
+  }
+
+  // ハンドル（柱ごと。左右対称なら1個、分離なら2個）
+  effPoints.forEach(function (p, i) {
+    var disp = Profile.toDisplayT(p.t, state.t0, state.reversed);
+    var x = graphX(disp);
+    function handle(side, val) {
+      var g = document.createElementNS(SVGNS, 'g');
+      g.setAttribute('class', 'ghandle' + (side === 'right' ? ' right' : '') + (i === state.selected ? ' sel' : ''));
+      g.dataset.idx = String(i); g.dataset.side = side;
+      var c = document.createElementNS(SVGNS, 'circle');
+      c.setAttribute('cx', x); c.setAttribute('cy', graphY(val, maxW)); c.setAttribute('r', 6);
+      g.appendChild(c);
+      graph.appendChild(g);
+    }
+    if (values.splitLR) { handle('left', p.left); handle('right', p.right); }
+    else handle('left', p.left);
+  });
+
+  // 起点マーク（グラフ左端=0%）
+  var g0 = document.createElementNS(SVGNS, 'path');
+  var gx = graphX(0), s2 = 6;
+  g0.setAttribute('d', 'M ' + gx + ' ' + (GRAPH_H - 10) + ' L ' + (gx - s2) + ' ' + (GRAPH_H - 2) + ' L ' + (gx + s2) + ' ' + (GRAPH_H - 2) + ' Z');
+  g0.setAttribute('class', 'g0mark');
+  graph.appendChild(g0);
+
+  // 段5:「線幅に連動」ONのとき、右端に奥行きの%目盛りを併記する（同じ曲線を幅・奥行き
+  // 両方として読む。反転時は上下逆＝太い側が奥%になる高さに合わせて目盛りのラベルだけ入れ替える）。
+  if (values.depthLinked) {
+    var widthsForAxis = [];
+    for (var ai = 0; ai <= N; ai++) {
+      var adisp = ai / N;
+      var aabs = Profile.toAbsoluteT(adisp, state.t0, state.reversed);
+      widthsForAxis.push(widthAvgAtT(sortedAbs, aabs));
+    }
+    var axisMin = Math.min.apply(null, widthsForAxis), axisMax = Math.max.apply(null, widthsForAxis);
+    var axisRange = axisMax - axisMin;
+    var gAxis = document.createElementNS(SVGNS, 'g');
+    [-50, -25, 0, 25, 50].forEach(function (pct) {
+      var raw = values.depthInvert ? -pct : pct;
+      var u = (raw / 50 + 1) / 2;
+      var w = axisRange < 1e-9 ? axisMin : axisMin + axisRange * u;
+      var y = graphY(w, maxW);
+      var l = document.createElementNS(SVGNS, 'line');
+      l.setAttribute('class', 'gdaxis-line');
+      l.setAttribute('x1', GRAPH_W - GRAPH_PAD_X - 6); l.setAttribute('y1', y);
+      l.setAttribute('x2', GRAPH_W - GRAPH_PAD_X); l.setAttribute('y2', y);
+      gAxis.appendChild(l);
+      var t = document.createElementNS(SVGNS, 'text');
+      t.setAttribute('class', 'gdaxis-text');
+      t.setAttribute('x', GRAPH_W - 2); t.setAttribute('y', y + 3);
+      t.setAttribute('text-anchor', 'end');
+      t.textContent = (pct > 0 ? '+' : '') + pct + '%';
+      gAxis.appendChild(t);
+    });
+    graph.appendChild(gAxis);
+  }
+}
+
+/* --- 奥行きのグラフの描画。横軸は幅のグラフと同じ表示t。縦軸はz（%・0が中央・手前+/奥-）。
+   縦いっぱいは常に-50〜+50%固定（2026-09-24変更・ユーザー指摘「奥行きのグラフの数値の幅が
+   狭い」。リンク中の従属曲線も含め、pxではなく図形の長辺に対する%で統一する）。 -- */
+function depthGraphMaxAbs() {
+  return DEPTH_AXIS_MAX;
+}
+function dgraphX(disp) { return GRAPH_PAD_X + disp * (GRAPH_W - GRAPH_PAD_X * 2); }
+function dgraphY(z, maxAbs) { return DGRAPH_PAD_T + (DGRAPH_H - DGRAPH_PAD_T - DGRAPH_PAD_B) * (1 - (z / maxAbs + 1) / 2); }
+
+function renderDepthGraph() {
+  depthGraph.innerHTML = '';
+  if (!state.segsWorld) return;
+  if (values.depthLinked) return; // 段5: 連動ONのときは奥行きのグラフ自体を出さない（CSSでも非表示）
+  var maxAbs = depthGraphMaxAbs();
+  var effDepth = effectiveDepthPoints();
+  var sortedAbs = effDepth.slice().sort(function (a, b) { return a.t - b.t; }).map(function (p) { return { t: p.t, left: p.z, right: p.z }; });
+
+  var gTicks = document.createElementNS(SVGNS, 'g');
+  effDepth.forEach(function (p) {
+    var x = dgraphX(Profile.toDisplayT(p.t, state.t0, state.reversed));
+    var l = document.createElementNS(SVGNS, 'line');
+    l.setAttribute('class', 'gtick');
+    l.setAttribute('x1', x); l.setAttribute('y1', DGRAPH_PAD_T); l.setAttribute('x2', x); l.setAttribute('y2', DGRAPH_H - DGRAPH_PAD_B);
+    gTicks.appendChild(l);
+  });
+  depthGraph.appendChild(gTicks);
+
+  // 0（元の平面）の水平線
+  var zeroY = dgraphY(0, maxAbs);
+  var zl = document.createElementNS(SVGNS, 'line');
+  zl.setAttribute('class', 'gzero');
+  zl.setAttribute('x1', GRAPH_PAD_X); zl.setAttribute('y1', zeroY); zl.setAttribute('x2', GRAPH_W - GRAPH_PAD_X); zl.setAttribute('y2', zeroY);
+  depthGraph.appendChild(zl);
+
+  var N = 240, d = '';
+  for (var i = 0; i <= N; i++) {
+    var disp = i / N;
+    var abs = Profile.toAbsoluteT(disp, state.t0, state.reversed);
+    var z = sortedAbs.length ? interpAt(sortedAbs, abs, 0, values.interpD).left : 0;
+    var x = dgraphX(disp), y = dgraphY(z, maxAbs);
+    d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1);
+  }
+  var curve = document.createElementNS(SVGNS, 'path');
+  curve.setAttribute('class', 'gcurve');
+  curve.setAttribute('d', d);
+  depthGraph.appendChild(curve);
+
+  effDepth.forEach(function (p, i) {
+    var x = dgraphX(Profile.toDisplayT(p.t, state.t0, state.reversed));
+    var g = document.createElementNS(SVGNS, 'g');
+    g.setAttribute('class', 'ghandle' + (i === state.selected ? ' sel' : ''));
+    g.dataset.idx = String(i);
+    var c = document.createElementNS(SVGNS, 'circle');
+    c.setAttribute('cx', x); c.setAttribute('cy', dgraphY(p.z, maxAbs)); c.setAttribute('r', 6);
+    g.appendChild(c);
+    depthGraph.appendChild(g);
+  });
+
+  var g0 = document.createElementNS(SVGNS, 'path');
+  var gx = dgraphX(0), s2 = 6;
+  g0.setAttribute('d', 'M ' + gx + ' ' + (DGRAPH_H - 8) + ' L ' + (gx - s2) + ' ' + DGRAPH_H + ' L ' + (gx + s2) + ' ' + DGRAPH_H + ' Z');
+  g0.setAttribute('class', 'g0mark');
+  depthGraph.appendChild(g0);
+}
+
+/* t（弧長比）に対応する世界座標・法線・接線を、outline.js の密サンプルから求める（平面基準・当たり判定用） */
+function sampleAt(t) {
+  var out = state.outline;
+  if (!out || !out.samples.length) return null;
+  var ts = out.ts, n = ts.length, best = 0, bestD = Infinity;
+  for (var i = 0; i < n; i++) {
+    var d = Math.min(Math.abs(ts[i] - t), Math.abs(ts[i] - t - 1), Math.abs(ts[i] - t + 1));
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return { p: out.samples[best], n: out.normals[best], idx: best, t: ts[best] };
+}
+function pointAtT(t) { var s = sampleAt(t); return s ? s.p : [0, 0]; }
+/* 投影後（回転後）の画面表示位置。幅ポイントのハンドル・起点マークの見た目に使う
+   （当たり判定はnearestTToPoint/sampleAtのまま平面基準＝★人が実操作で違和感を確認する余地あり）。 */
+function projPointAt(t) {
+  if (!state.proj) return pointAtT(t);
+  var ts = state.proj.ts, n = ts.length, best = 0, bestD = Infinity;
+  for (var i = 0; i < n; i++) {
+    var d = Math.min(Math.abs(ts[i] - t), Math.abs(ts[i] - t - 1), Math.abs(ts[i] - t + 1));
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return state.proj.proj2D[best];
+}
+
+/* クリック位置に最も近い中心線サンプルの t を返す（getPointAtLength は使わない） */
+function nearestTToPoint(pt) {
+  var out = state.outline;
+  if (!out || !out.samples.length) return { t: 0, dist: Infinity, idx: 0 };
+  var best = 0, bestD = Infinity;
+  for (var i = 0; i < out.samples.length; i++) {
+    var d = Math.hypot(out.samples[i][0] - pt[0], out.samples[i][1] - pt[1]);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return { t: out.ts[best], dist: bestD, idx: best };
+}
+
+/* --- 幅ポイントの編集: 選択・追加・削除・並べ替え -------------------------- */
+function sortPointsKeepSelection() {
+  var sel = state.selected >= 0 ? state.points[state.selected] : null;
+  state.points.sort(function (a, b) { return a.t - b.t; });
+  state.selected = sel ? state.points.indexOf(sel) : -1;
+}
+function selectPoint(i) {
+  state.selected = i;
+  updateSelectedRowsVisibility();
+  if (i >= 0) syncPanelFromSelected();
+  render();
+}
+function deleteSelected() {
+  if (state.selected < 0) return;
+  state.points.splice(state.selected, 1);
+  state.selected = -1;
+  updateSelectedRowsVisibility();
+  pushHistory();
+  render();
+}
+function resetPoints() {
+  state.points = [];
+  state.selected = -1;
+  updateSelectedRowsVisibility();
+  pushHistory();
+  render();
+}
+
+/* --- 幅のグラフ: 柱の並び・規則の適用 --------------------------------------
+   柱の位置（絶対t）は「柱の置き方」から決まる。
+     アンカーごと = 元パスのアンカーポイント（Profile.anchorTs）
+     等間隔       = 本数ぶんの等間隔（Profile.evenTs）
+     自由         = 今の state.points の t をそのまま使う（並び順だけ表示t順に）
+   規則（すべて同じ・交互・波・だんだん）は、この柱の並びに幅（左右対称値）を
+   一括で割り当てる。適用後は個々のハンドルで自由に上書きできる（毎回re-generateはしない）。 -- */
+function currentOrderedTs() {
+  if (!state.segsWorld) return [];
+  if (values.pillarMode === 'anchor') {
+    return Profile.anchorTs(Outline, state.segsWorld, TOL, MAX_LINE_STEP, state.t0, state.reversed);
+  }
+  if (values.pillarMode === 'even') {
+    return Profile.evenTs(values.evenCount, state.t0, state.reversed);
+  }
+  // 自由: 既存の点のtを、表示t（起点・向き基準）の昇順で使う
+  return state.points.map(function (p) { return p.t; }).sort(function (a, b) {
+    return Profile.toDisplayT(a, state.t0, state.reversed) - Profile.toDisplayT(b, state.t0, state.reversed);
+  });
+}
+function applyRuleToPillars() {
+  if (!state.segsWorld) return;
+  var ts = currentOrderedTs();
+  if (!ts.length) return;
+  var widths = Profile.applyRule(values.rule, ts, state.t0, state.reversed, { A: values.ruleA, B: values.ruleB, n: values.ruleN });
+  state.points = ts.map(function (t, i) { return { t: t, left: widths[i], right: widths[i] }; });
+  state.selected = -1;
+  updateSelectedRowsVisibility();
+  sortPointsKeepSelection();
+  pushHistory();
+  render();
+}
+/* --- 奥行きの柱・規則（段3）。柱・起点・規則の仕組みは幅のグラフと共用（profile.js） --- */
+function applyRuleToDepthPillars() {
+  if (!state.segsWorld) return;
+  var ts = currentOrderedTs();
+  if (!ts.length) return;
+  var zs = Profile.applyRule(values.ruleD, ts, state.t0, state.reversed, { A: values.ruleDA, B: values.ruleDB, n: values.ruleDN });
+  state.depthPoints = ts.map(function (t, i) { return { t: t, z: zs[i] }; });
+  pushHistory();
+  render();
+}
+// 柱の置き方・本数・起点・向きが変わったら、幅と奥行きの両方の柱を同じt列で作り直す
+function regenerateAllPillars() {
+  applyRuleToPillars();
+  applyRuleToDepthPillars();
+}
+/* --- 幅・奥行きの点列（規則ベースの柱そのもの）はどちらも常にそのまま返す。「線幅に連動」の
+   計算はこれとは別に linkedDepthPctArray/linkedDepthPctAtT が担う（段5・2026-09-25）。 --- */
+function effectiveWidthPoints() { return state.points; }
+function effectiveDepthPoints() { return state.depthPoints; }
+
+/* --- 段5:「線幅に連動」の計算本体。幅のグラフの曲線（interpAt・現在の補間モード込み）を
+   tsArr上で密にサンプルし、その最小→最大を Depth.linkedDepth で −50〜+50% に写す。
+   毎フレーム呼ぶ（3D計算・幅のグラフの右軸目盛りの両方で使う）。 ------------------------- */
+function widthAvgAtT(sortedWidth, t) {
+  var w = interpAt(sortedWidth, t, values.baseWidth, values.interp);
+  return (w.left + w.right) / 2;
+}
+function linkedDepthPctArray(tsArr) {
+  var widthPts = effectiveWidthPoints();
+  if (!widthPts.length || !tsArr.length) return tsArr.map(function () { return 0; });
+  var sortedWidth = widthPts.slice().sort(function (a, b) { return a.t - b.t; });
+  var widths = tsArr.map(function (t) { return widthAvgAtT(sortedWidth, t); });
+  return Depth.linkedDepth(widths, values.depthInvert);
+}
+/* 単発の1点だけ知りたいとき（連動OFFへ切り替える瞬間の引き継ぎ用）。
+   中心線の密サンプルts（state.outline.ts）上で連動値を計算し、指定tに最も近いサンプルを返す。
+   OFF切り替え時に1回だけ呼ぶ想定（renderループでは使わない＝毎フレームには重い）。 */
+function linkedDepthPctAtT(t) {
+  var out = state.outline;
+  if (!out || !out.ts || !out.ts.length) return 0;
+  var pcts = linkedDepthPctArray(out.ts);
+  var best = 0, bestD = Infinity;
+  for (var i = 0; i < out.ts.length; i++) {
+    var d = Math.min(Math.abs(out.ts[i] - t), Math.abs(out.ts[i] - t - 1), Math.abs(out.ts[i] - t + 1));
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return pcts[best];
+}
+function resetOrientation() {
+  values.set('angleX', 0);
+  values.set('angleY', 0);
+  pushHistory();
+  render();
+}
+function armPickT0() {
+  state.pickingT0 = true;
+  Studio.toast('起点にする位置をクリック（⇧で任意位置・既定はアンカーへ吸着）');
+}
+function toggleReversed() {
+  state.reversed = !state.reversed;
+  pushHistory();
+  render();
+}
+function normalizeSplitLR() {
+  if (!values.splitLR) {
+    // オフに戻すときは左右の平均へ揃える（分離前の対称状態に戻す）
+    state.points.forEach(function (p) { var m = (p.left + p.right) / 2; p.left = m; p.right = m; });
+  }
+  pushHistory();
+  render();
+}
+
+/* --- キャンバス操作 -------------------------------------------------------
+   クリック: 既存の点に当たれば選択、中心線の近くなら新しい点を追加して選択、
+             それ以外（版面外の空白）なら選択解除。
+   ドラッグ: 法線方向優先＝幅（左右対称に増減。⌥で片側だけ）。
+             接線方向優先＝位置（t を移動）。 --------------------------- */
+// インスタONだと絵をfitInto分だけ拡縮しているため、当たり判定はcanvasArtGroup基準で取る
+// （無ければcanvas自身＝インスタOFFや未初期化時のフォールバック）。
+function svgPointFromEvent(e) {
+  var pt = canvas.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  var ctm = (canvasArtGroup || canvas).getScreenCTM().inverse();
+  var p = pt.matrixTransform(ctm);
+  return [p.x, p.y];
+}
+
+canvas.addEventListener('pointerdown', function (e) {
+  if (!state.segsWorld) return;
+
+  if (values.rotateMode) {
+    startRotateDrag(e);
+    return;
+  }
+
+  var p = svgPointFromEvent(e);
+
+  if (state.pickingT0) {
+    var nearT0 = nearestTToPoint(p);
+    var t0New = nearT0.t;
+    if (!e.shiftKey) {
+      var anchors = Profile.anchorTs(Outline, state.segsWorld, TOL, MAX_LINE_STEP, 0, false);
+      var bestA = anchors.length ? anchors[0] : t0New, bestD = Infinity;
+      anchors.forEach(function (a) {
+        var d = Math.abs(a - t0New); d = Math.min(d, 1 - d);
+        if (d < bestD) { bestD = d; bestA = a; }
+      });
+      t0New = bestA;
+    }
+    state.t0 = t0New;
+    state.pickingT0 = false;
+    pushHistory();
+    render();
+    return;
+  }
+
+  var hitEl = e.target.closest('.pt');
+  var hitIdx = hitEl ? +hitEl.dataset.idx : -1;
+
+  if (hitIdx >= 0) {
+    selectPoint(hitIdx);
+    startDrag(e, hitIdx, false);
+    return;
+  }
+  var near = nearestTToPoint(p);
+  var HIT_TOL = 24; // 世界座標px（キャンバス範囲680に対する妥当な当たり判定）
+  if (near.dist <= HIT_TOL) {
+    var wAt = Outline.widthAt(state.points.slice().sort(function (a, b) { return a.t - b.t; }), near.t, values.baseWidth);
+    var idx = state.points.length;
+    state.points.push({ t: near.t, left: wAt.left, right: wAt.right });
+    sortPointsKeepSelection();
+    // sortPointsKeepSelection は selected の追跡用。新規点のindexを取り直す。
+    idx = state.points.findIndex(function (pt) { return Math.abs(pt.t - near.t) < 1e-9; });
+    selectPoint(idx);
+    startDrag(e, idx, true);
+  } else {
+    selectPoint(-1);
+  }
+});
+
+function startDrag(e, idx, isNew) {
+  try { canvas.setPointerCapture(e.pointerId); } catch (e2) { /* 合成イベント等でpointerIdが無効な場合は無視（キャプチャ無しでも動く） */ }
+  isDraggingSS = true; // 版面フィットの拡縮はドラッグ中固定（掴んだ点が逃げないように・006 §0）
+  var p0 = state.points[idx];
+  var s0 = sampleAt(p0.t);
+  var start = svgPointFromEvent(e);
+  state.drag = {
+    idx: idx, startClient: start, startT: p0.t, startLeft: p0.left, startRight: p0.right,
+    normal: s0 ? s0.n : [0, 1], total: state.outline ? state.outline.total : HALF * 6, isNew: isNew
+  };
+  function move(ev) {
+    var cur = svgPointFromEvent(ev);
+    var dx = cur[0] - start[0], dy = cur[1] - start[1];
+    var d = state.drag;
+    var nx = d.normal[0], ny = d.normal[1];
+    var tx = -ny, ty = nx; // 接線（法線を90°回す）
+    var projN = dx * nx + dy * ny;
+    var projT = dx * tx + dy * ty;
+    var pt = state.points[d.idx];
+    if (!pt) return;
+    if (Math.abs(projN) >= Math.abs(projT)) {
+      if (ev.altKey) {
+        if (projN >= 0) { pt.left = clampWidth(d.startLeft + projN); pt.right = clampWidth(d.startRight); }
+        else { pt.right = clampWidth(d.startRight - projN); pt.left = clampWidth(d.startLeft); }
+      } else {
+        pt.left = clampWidth(d.startLeft + projN);
+        pt.right = clampWidth(d.startRight + projN);
+      }
+    } else {
+      var dt = d.total > 0 ? projT / d.total : 0;
+      var nt = d.startT + dt; nt = ((nt % 1) + 1) % 1;
+      pt.t = nt;
+    }
+    sortPointsKeepSelection();
+    syncPanelFromSelected();
+    scheduleRender();
+  }
+  function up(ev) {
+    canvas.removeEventListener('pointermove', move);
+    canvas.removeEventListener('pointerup', up);
+    try { canvas.releasePointerCapture(ev.pointerId); } catch (e2) { /* 無視 */ }
+    state.drag = null;
+    isDraggingSS = false;
+    render(); // 最終フレームは即描画（rAF待ちで一瞬古い絵のまま止まって見えるのを防ぐ。拡縮も入れ直す）
+    pushHistory();
+  }
+  canvas.addEventListener('pointermove', move);
+  canvas.addEventListener('pointerup', up);
+}
+function clampWidth(v) { return Math.max(0, Math.min(200, v)); }
+
+/* --- 回すモード: キャンバスドラッグで縦・横の角度を変える --------------------- */
+function startRotateDrag(e) {
+  try { canvas.setPointerCapture(e.pointerId); } catch (e2) { /* 無視 */ }
+  isDraggingSS = true; // 回転中は版面フィットを固定（半径は回転で変わらないが念のため他ドラッグと統一）
+  var start = [e.clientX, e.clientY];
+  var x0 = values.angleX, y0 = values.angleY;
+  var SENS = 0.4; // 1pxあたりの角度(°)
+  function move(ev) {
+    var dx = ev.clientX - start[0], dy = ev.clientY - start[1];
+    values.set('angleX', Math.max(-90, Math.min(90, x0 + dy * SENS)));
+    values.set('angleY', Math.max(-180, Math.min(180, y0 + dx * SENS)));
+    scheduleRender();
+  }
+  function up(ev) {
+    canvas.removeEventListener('pointermove', move);
+    canvas.removeEventListener('pointerup', up);
+    try { canvas.releasePointerCapture(ev.pointerId); } catch (e2) { /* 無視 */ }
+    isDraggingSS = false;
+    render();
+    pushHistory();
+  }
+  canvas.addEventListener('pointermove', move);
+  canvas.addEventListener('pointerup', up);
+}
+
+/* --- 幅のグラフ: ハンドルを上下ドラッグで幅を変える（イージングカーブエディタと同じ操作感） ---
+   横方向には動かさない（位置=tを変えたい時はキャンバス側で線に沿ってドラッグする）。 */
+function graphPointFromEvent(e) {
+  var pt = graph.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  var ctm = graph.getScreenCTM().inverse();
+  var p = pt.matrixTransform(ctm);
+  return [p.x, p.y];
+}
+graph.addEventListener('pointerdown', function (e) {
+  var hitEl = e.target.closest('.ghandle');
+  if (!hitEl) return;
+  var idx = +hitEl.dataset.idx, side = hitEl.dataset.side;
+  selectPoint(idx);
+  try { graph.setPointerCapture(e.pointerId); } catch (e2) { /* 合成イベント等でpointerIdが無効な場合は無視（キャプチャ無しでも動く） */ }
+  var maxW = graphMaxW();
+  function move(ev) {
+    var gp = graphPointFromEvent(ev);
+    var w = clampWidth((GRAPH_H - GRAPH_PAD_B - gp[1]) / (GRAPH_H - GRAPH_PAD_B - GRAPH_PAD_T) * maxW);
+    var pt = state.points[idx];
+    if (!pt) return;
+    if (side === 'right') pt.right = w; else pt.left = w;
+    if (!values.splitLR) { pt.left = w; pt.right = w; }
+    syncPanelFromSelected();
+    scheduleRender();
+  }
+  function up(ev) {
+    graph.removeEventListener('pointermove', move);
+    graph.removeEventListener('pointerup', up);
+    try { graph.releasePointerCapture(ev.pointerId); } catch (e2) { /* 無視 */ }
+    render();
+    pushHistory();
+  }
+  graph.addEventListener('pointermove', move);
+  graph.addEventListener('pointerup', up);
+});
+
+/* --- 奥行きのグラフ: ハンドルを上下ドラッグでzを変える（幅のグラフと同じ操作感） --- */
+function depthGraphPointFromEvent(e) {
+  var pt = depthGraph.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  var ctm = depthGraph.getScreenCTM().inverse();
+  var p = pt.matrixTransform(ctm);
+  return [p.x, p.y];
+}
+depthGraph.addEventListener('pointerdown', function (e) {
+  var hitEl = e.target.closest('.ghandle');
+  if (!hitEl) return;
+  var idx = +hitEl.dataset.idx;
+  selectPoint(idx);
+  try { depthGraph.setPointerCapture(e.pointerId); } catch (e2) { /* 無視 */ }
+  var maxAbs = depthGraphMaxAbs();
+  function move(ev) {
+    var gp = depthGraphPointFromEvent(ev);
+    var innerH = DGRAPH_H - DGRAPH_PAD_T - DGRAPH_PAD_B;
+    var z = ((1 - (gp[1] - DGRAPH_PAD_T) / innerH) * 2 - 1) * maxAbs;
+    z = Math.max(-DEPTH_AXIS_MAX, Math.min(DEPTH_AXIS_MAX, z));
+    var pt = state.depthPoints[idx];
+    if (!pt) return;
+    pt.z = z;
+    scheduleRender();
+  }
+  function up(ev) {
+    depthGraph.removeEventListener('pointermove', move);
+    depthGraph.removeEventListener('pointerup', up);
+    try { depthGraph.releasePointerCapture(ev.pointerId); } catch (e2) { /* 無視 */ }
+    render();
+    pushHistory();
+  }
+  depthGraph.addEventListener('pointermove', move);
+  depthGraph.addEventListener('pointerup', up);
+});
+
+/* --- キーボード（006_ツールの規格 §7・KEY-00: キーは Studio.keys に集約する。keydown を
+   自前で書かない）。⌘Z/⇧⌘Z は Studio.history をそのまま渡す。X は色の対象（塗り（帯）→塗り層→
+   背景の順）を切り替える（上部バーのスウォッチと同じ）。Esc は段階（映像ダイアログ・色の小窓 →
+   起点を指定モード → 選択解除）。 -------------------------------------------------------- */
+Studio.keys({
+  history: hist, apply: applyHistState,   // ⌘Z / ⇧⌘Z
+  copy: doCopySVG,                        // ⌘C SVGをコピー
+  toggleColorTarget: function () {        // X 「塗り（帯）」→「塗り層」→「背景」の順に編集対象を切り替え
+    var order = ['fill', 'fillLayer', 'bg'];
+    var idx = order.indexOf(sb.colors.getTarget());
+    sb.colors.setTarget(order[(idx + 1) % order.length]);
+  },
+  play: sb.togglePlay,                    // Space 短押し=再生/停止（A/B未記録時は既存の動きのプレビューへ委譲）
+  del: deleteSelected,                    // Delete/Backspace＝選択した幅ポイントを削除
+  escSteps: [
+    function () { return closeMotionSection(); },   // 開いている右パネルの「映像」節を閉じる
+    sb.closeDialog,                       // 色の小窓などを閉じる（kitの映像ダイアログはこの画面では開かない）
+    function () {                         // 開いている「書き出し設定」を閉じる（狭い画面）
+      if (!bar.el.classList.contains('opts-open')) return false;
+      bar.el.classList.remove('opts-open');
+      return true;
+    },
+    function () {                         // 起点を指定モードを取り消す
+      if (!state.pickingT0) return false;
+      state.pickingT0 = false;
+      return true;
+    },
+    function () {                         // 選んでいる幅ポイントを外す
+      if (state.selected < 0) return false;
+      selectPoint(-1);
+      return true;
+    }
+  ]
+});
+
+/* --- 書き出し（006_ツールの規格 §1〜§4・§13 VID-01） -----------------------
+   書き出しの範囲＝版面（frameBox）。includeBg=true（既定）なら背景（colorState.bg）を
+   g#art の最初の子として差し込む（§4 OUT-03: 図版はg#artが1個のまま増やさない）。
+   ⌘C／コピーはincludeBg=falseで呼ぶ（§8 COPY-01: 地色を含めない）。 -------------------- */
+function buildExportSVG(includeBg) {
+  if (includeBg === undefined) includeBg = true;
+  var svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('xmlns', SVGNS);
+  var fb = frameBox || { x: -HALF, y: -HALF, w: HALF * 2, h: HALF * 2 };
+  svg.setAttribute('viewBox', fb.x + ' ' + fb.y + ' ' + fb.w + ' ' + fb.h);
+  svg.setAttribute('width', fb.w); svg.setAttribute('height', fb.h);
+  var art = document.createElementNS(SVGNS, 'g'); art.id = 'art';
+  if (includeBg && colorState.bg && colorState.bg !== 'none') {
+    var bgRect = document.createElementNS(SVGNS, 'rect');
+    bgRect.setAttribute('x', fb.x); bgRect.setAttribute('y', fb.y);
+    bgRect.setAttribute('width', fb.w); bgRect.setAttribute('height', fb.h);
+    bgRect.setAttribute('fill', colorState.bg);
+    art.appendChild(bgRect);
+  }
+  // 段6: 書き出しだけ密度を上げて計算し直す（曲線フィットの元データを綺麗にするため。
+  // 表示密度(state.outline/state.proj)は書き出し後に必ず元へ戻す＝画面は一切変えない）。
+  var savedOutline = state.outline, savedProj = state.proj;
+  state.outline = Outline.buildOutline(state.segsWorld, values.baseWidth, state.points, { tol: EXPORT_FIT_TOL / 3, maxLineStep: EXPORT_MAX_LINE_STEP });
+  var proj = computeProjection();
+  var layers = buildLayers(proj, true);
+  state.outline = savedOutline; state.proj = savedProj;
+  // インスタONの絵を版面に収める（006 §0）。背景は上で既に版面いっぱいのまま足しているので対象外。
+  var fitArt = document.createElementNS(SVGNS, 'g');
+  var fitSS = computeFitTransformSS();
+  if (fitSS) fitArt.setAttribute('transform', fitSS.transform);
+  // 3層: g#fill（塗り層・evenodd） / g#band（帯：正面1本 or 回転時は小片） / g#center（中心線・常に入れる）
+  fitArt.appendChild(layers.fillEl);
+  fitArt.appendChild(layers.bandEl);
+  fitArt.appendChild(layers.centerEl);
+  art.appendChild(fitArt);
+  svg.appendChild(art);
+  svg.style.cssText = 'position:fixed;left:-99999px;top:0';
+  document.body.appendChild(svg);
+  return svg;
+}
+
+/* --- 段7-2:「動画にする」 ---------------------------------------------------
+   縦に回す・横に回す・深さの始点/終点をイージング（motion.js）で結び、角度・奥行きを
+   フレームごとに動かして書き出す。各フレームはbuildExportSVG()と同じフル品質
+   （曲線フィット・丸め・小片）で作る。値の書き換えは一時的（書き出し後に必ず元へ戻す）。
+   実装は 150_動きの書き出し/core.js＋index.html の captureStream(0)+requestFrame（絶対時刻）と
+   Studio.exportZIP のパターンを踏襲（このツール自体はDOM一体型のためcore.js自体は流用せず、
+   同じ設計だけを踏襲）。 ------------------------------------------------------ */
+function motionCurrentAngles(u) {
+  return {
+    angleX: Motion.valueAt(values.motAngleXStart, values.motAngleXEnd, u, values.motEase),
+    angleY: Motion.valueAt(values.motAngleYStart, values.motAngleYEnd, u, values.motEase),
+    depthSpanPct: Motion.valueAt(values.motDepthStart, values.motDepthEnd, u, values.motEase)
+  };
+}
+function motionSequenceCount() { return Motion.totalFrames(values.motDuration, +values.motFps); }
+/* 段7-3: 書き出しの枠は「全フレームの3層の外接矩形の和」＋余白（長辺の5%）で自動決定する
+   （正面のbboxだけでは、回すと奥行き分だけ横に広がる帯が画面端で切れていたため。
+   150_動きの書き出しと同じ扱い＝ユーザーが幅・高さを変えても絵は等倍で収める。viewBoxの
+   アスペクト比とSVGのpreserveAspectRatio既定(xMidYMid meet)により、指定したwPx/hPxの
+   縦横比が違っても絵は伸びず中央にレターボックスで収まる）。
+   サンプルはu=0..1を9点だけ（毎フレーム計算は重いので粗くてよい・厳密な最小矩形は不要）。 */
+function computeMotionBBox() {
+  if (!state.segsWorld) return { x: -HALF, y: -HALF, w: HALF * 2, h: HALF * 2 };
+  var N = 9;
+  var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  var savedA = values.angleX, savedB = values.angleY, savedC = values.depthSpanPct;
+  var savedOutline = state.outline, savedProj = state.proj;
+  state.outline = Outline.buildOutline(state.segsWorld, values.baseWidth, state.points, { tol: TOL, maxLineStep: MAX_LINE_STEP, geom: getGeomCached() });
+  for (var i = 0; i < N; i++) {
+    var u = i / (N - 1);
+    var a = motionCurrentAngles(u);
+    values.angleX = a.angleX; values.angleY = a.angleY; values.depthSpanPct = a.depthSpanPct;
+    var proj = computeProjection();
+    var pts = proj.left.concat(proj.right, proj.proj2D);
+    for (var k = 0; k < pts.length; k++) {
+      var p = pts[k];
+      if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+      if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+    }
+  }
+  values.angleX = savedA; values.angleY = savedB; values.depthSpanPct = savedC;
+  state.outline = savedOutline; state.proj = savedProj;
+  if (!isFinite(minX)) return { x: -HALF, y: -HALF, w: HALF * 2, h: HALF * 2 };
+  var w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+  var margin = 0.05 * Math.max(w, h);
+  return { x: minX - margin, y: minY - margin, w: w + margin * 2, h: h + margin * 2 };
+}
+/* 指定した角度/深さで1フレームぶんのSVG要素を作る（buildExportSVGと同じ密度・forExport=true）。
+   values.angleX/angleY/depthSpanPctを一時的に書き換えてcomputeProjection()し、必ず戻す。 */
+function buildMotionFrameSVG(angleX, angleY, depthSpanPct, wPx, hPx, bg, useFit, vb, rasterSeal) {
+  // useFit=true（SVG連番）のときだけ書き出し密度＋曲線フィットのフル品質。
+  // PNG連番・動画（ラスタ化するだけ＝最終的にピクセルにしかならない）はuseFit=falseにして
+  // 表示密度のまま作る（実測で発見: フル品質だと1フレーム約数百msかかり、96フレームで
+  // 動画1本の書き出しに80秒以上かかっていた。表示密度なら1フレーム約10msで足りる）。
+  // vb（{x,y,w,h}）は computeMotionBBox() の戻り値。省略時は従来の正面固定枠にフォールバック
+  // （プレビュー再生など1フレームだけ見たいときに毎回bboxを計算し直さずに済むように）。
+  vb = vb || { x: -HALF, y: -HALF, w: HALF * 2, h: HALF * 2 };
+  var savedA = values.angleX, savedB = values.angleY, savedC = values.depthSpanPct;
+  values.angleX = angleX; values.angleY = angleY; values.depthSpanPct = depthSpanPct;
+  var svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('xmlns', SVGNS);
+  svg.setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
+  svg.setAttribute('width', wPx); svg.setAttribute('height', hPx);
+  if (bg === 'white') {
+    var rect = document.createElementNS(SVGNS, 'rect');
+    rect.setAttribute('x', vb.x); rect.setAttribute('y', vb.y);
+    rect.setAttribute('width', vb.w); rect.setAttribute('height', vb.h);
+    rect.setAttribute('fill', '#ffffff');
+    svg.appendChild(rect);
+  }
+  var art = document.createElementNS(SVGNS, 'g'); art.id = 'art';
+  var savedOutline = state.outline, savedProj = state.proj;
+  if (useFit) {
+    state.outline = Outline.buildOutline(state.segsWorld, values.baseWidth, state.points, { tol: EXPORT_FIT_TOL / 3, maxLineStep: EXPORT_MAX_LINE_STEP });
+  } else {
+    state.outline = Outline.buildOutline(state.segsWorld, values.baseWidth, state.points, { tol: TOL, maxLineStep: MAX_LINE_STEP, geom: getGeomCached() });
+  }
+  var proj = computeProjection();
+  var layers = buildLayers(proj, !!useFit, !!rasterSeal);
+  state.outline = savedOutline; state.proj = savedProj;
+  art.appendChild(layers.fillEl); art.appendChild(layers.bandEl); art.appendChild(layers.centerEl);
+  svg.appendChild(art);
+  values.angleX = savedA; values.angleY = savedB; values.depthSpanPct = savedC;
+  return svg;
+}
+function motionFrameSVGText(u, wPx, hPx, bg, useFit, vb) {
+  var a = motionCurrentAngles(u);
+  var svg = buildMotionFrameSVG(a.angleX, a.angleY, a.depthSpanPct, wPx, hPx, bg, useFit, vb, !useFit);
+  return new XMLSerializer().serializeToString(svg); // DOMには足していない（appendChildしていないのでremoveも不要）
+}
+function loadSVGImageMotion(svgText) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+    var img = new Image();
+    img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('フレーム画像を作れませんでした')); };
+    img.src = url;
+  });
+}
+function pngBlobMotion(svgText, w, h) {
+  return loadSVGImageMotion(svgText).then(function (img) {
+    var canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    return new Promise(function (resolve, reject) {
+      canvas.toBlob(function (b) { b ? resolve(b) : reject(new Error('PNGを作れませんでした')); }, 'image/png');
+    });
+  });
+}
+/* --- プレビュー再生（書き出しなし・rAFで角度/深さを動かしてrender()するだけ） --- */
+var motionState = { playing: false, rafId: null, restore: null };
+function toggleMotionPreview() {
+  if (motionState.playing) { stopMotionPreview(); return; }
+  if (!state.segsWorld) { Studio.toast('先にSVGを貼ってください', { kind: 'error', sticky: true }); return; }
+  motionState.playing = true;
+  var t0 = performance.now();
+  var savedA = values.angleX, savedB = values.angleY, savedC = values.depthSpanPct;
+  motionState.restore = function () { values.set('angleX', savedA); values.set('angleY', savedB); values.set('depthSpanPct', savedC); render(); };
+  function frame() {
+    if (!motionState.playing) return;
+    var dur = Math.max(0.1, values.motDuration);
+    var raw = ((performance.now() - t0) / 1000 % dur) / dur;
+    var u = values.motLoop === 'pingpong' ? (raw < 0.5 ? raw * 2 : 2 - raw * 2) : raw;
+    var a = motionCurrentAngles(u);
+    values.angleX = a.angleX; values.angleY = a.angleY; values.depthSpanPct = a.depthSpanPct;
+    render();
+    motionState.rafId = requestAnimationFrame(frame);
+  }
+  motionState.rafId = requestAnimationFrame(frame);
+}
+function stopMotionPreview() {
+  motionState.playing = false;
+  if (motionState.rafId) cancelAnimationFrame(motionState.rafId);
+  motionState.rafId = null;
+  if (motionState.restore) motionState.restore();
+}
+/* --- 書き出し本体（SVG/PNG連番ZIP・webm/mp4動画） --- */
+function motionFileBase() { return fileBase() + '_motion'; }
+function exportMotionSequence() {
+  var count = motionSequenceCount();
+  var w = values.motWidth, h = values.motHeight, bg = values.motBg, png = values.motFormat === 'pngZip';
+  var vb = computeMotionBBox(); // 全フレームの3層の和＋余白5%（1回だけ計算・全フレームで使い回す）
+  var files = [];
+  var i = 0;
+  function step() {
+    if (i >= count) return Studio.exportZIP(files, { name: motionFileBase() }).then(function () { Studio.toast('書き出しました（' + count + '枚）'); });
+    var u = Motion.frameU(i, count, values.motLoop);
+    var svgText = motionFrameSVGText(u, w, h, bg, !png, vb); // SVG連番だけフル品質(useFit)。PNGはラスタ化するので表示密度でよい
+    var name = motionFileBase() + '_' + String(i).padStart(4, '0') + (png ? '.png' : '.svg');
+    var work = png ? pngBlobMotion(svgText, w, h).then(function (b) { return b.arrayBuffer(); }).then(function (buf) { return new Uint8Array(buf); })
+      : Promise.resolve(new TextEncoder().encode(svgText));
+    return work.then(function (data) {
+      files.push({ name: name, bytes: data });
+      if (i % 8 === 0) Studio.toast('書き出し ' + (i + 1) + ' / ' + count);
+      i++;
+      return new Promise(function (r) { setTimeout(r, 0); }).then(step);
+    });
+  }
+  return step();
+}
+async function exportMotionVideo() {
+  if (typeof MediaRecorder === 'undefined') return Promise.reject(new Error('このブラウザは動画の書き出しに対応していません'));
+  var count = motionSequenceCount();
+  var w = values.motWidth, h = values.motHeight, bg = values.motBg, format = values.motFormat;
+  var candidates = format === 'mp4' ? ['video/mp4;codecs=avc1', 'video/mp4'] : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  var mime = candidates.find(function (v) { return MediaRecorder.isTypeSupported(v); });
+  if (!mime) return Promise.reject(new Error('このブラウザは' + format + 'に対応していません。別の形式を選んでください'));
+  var canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+  if (!canvas.captureStream) return Promise.reject(new Error('このブラウザは動画の書き出しに対応していません'));
+  var ctx = canvas.getContext('2d');
+  var stream = canvas.captureStream(0);
+  var track = stream.getVideoTracks()[0];
+  if (!track || !track.requestFrame) return Promise.reject(new Error('このブラウザは時刻指定の動画出力に対応していません'));
+  var recorder = new MediaRecorder(stream, { mimeType: mime });
+  var chunks = [], failure = null;
+  var stopped = new Promise(function (resolve) { recorder.onstop = resolve; });
+  recorder.onerror = function (e) { failure = e.error || new Error('録画に失敗しました'); };
+  recorder.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+  var fps = +values.motFps, totalMs = (values.motDuration || 1) * 1000;
+  // 段7-2 修正（実測で発見）: 各フレームのSVGラスタライズ（Image読み込み）を
+  // 「一定間隔で送り出す」ループの中で毎回awaitすると、ラスタライズ待ち時間ぶん
+  // 動画の実尺が目標秒数より長くなる（実測: 4秒指定のはずが6.19秒になった＝
+  // ラスタライズの重さが尺に混ざっていた）。150_動きの書き出しと同じ「先に全部レンダリングして
+  // から、軽い送り出しループだけを絶対時刻でペーシングする」方式に直した。
+  Studio.toast('書き出し準備中…');
+  var vb = computeMotionBBox(); // 全フレームの3層の和＋余白5%（1回だけ計算・全フレームで使い回す）
+  var images = new Array(count);
+  for (var pi = 0; pi < count; pi++) {
+    var u0 = Motion.frameU(pi, count, values.motLoop);
+    var svgText0 = motionFrameSVGText(u0, w, h, bg, false, vb); // 動画はラスタ化のみ＝表示密度で十分・高速
+    images[pi] = await loadSVGImageMotion(svgText0);
+    if (pi % 8 === 0) Studio.toast('準備 ' + (pi + 1) + ' / ' + count);
+  }
+  // 段7-4 修正（実測で発見）: setTimeoutでの送り出しペーシングは、Chromeのバックグラウンドタブ
+  // 省電力スロットリング（1秒に1回まで間引き）がかかる環境で、4秒指定のはずが実測80〜90秒の
+  // 動画になっていた（段7-2で見つけたスロットリングと同根だが、こちらは「テスト環境固有」では
+  // 済まず、ユーザーがタブを裏に回した状態で書き出した場合にも起こりうる実害と判断し直した）。
+  // タイマーを一切登録しない同期ビジーウェイトに変更（この区間だけメインスレッドを占有するが、
+  // 書き出し処理自体がユーザーの明示操作であり、対象は高々数十秒のため許容する）。
+  recorder.start();
+  var t0 = performance.now();
+  for (var i = 0; i < count; i++) {
+    if (failure) throw failure;
+    ctx.clearRect(0, 0, w, h);
+    if (bg === 'white' || bg === 'orig') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); } // 動画(webm/mp4)は透過非対応のため白で塗る
+    ctx.drawImage(images[i], 0, 0, w, h);
+    track.requestFrame();
+    if (i % 8 === 0) Studio.toast('書き出し ' + (i + 1) + ' / ' + count);
+    var deadline = t0 + Math.min((i + 1) * 1000 / fps, totalMs);
+    // 完全な同期ビジーウェイトだとMediaRecorderが実際にフレームを取り込む隙が無く
+    // 中身が空の動画になった（実測: 110バイト）。締切直前まではビジーウェイトし、
+    // 最後にrequestAnimationFrameで1回だけ実イベントループへ譲る（setTimeoutは使わない
+    // ＝スロットリング対象にしない）。
+    while (performance.now() < deadline - 2) { /* 同期ビジーウェイト */ }
+    await new Promise(function (r) { requestAnimationFrame(function () { r(); }); });
+  }
+  return Promise.resolve().then(function () {
+    recorder.stop();
+    return stopped;
+  }).then(function () {
+    if (failure) throw failure;
+    stream.getTracks().forEach(function (t) { t.stop(); });
+    var blob = new Blob(chunks, { type: mime });
+    var name = motionFileBase() + '.' + format;
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    Studio.toast(name);
+    return blob;
+  }).finally(function () {
+    if (recorder.state !== 'inactive') { try { recorder.stop(); } catch (e2) { /* 無視 */ } }
+    stream.getTracks().forEach(function (t) { t.stop(); });
+  });
+}
+function exportMotion() {
+  if (!state.segsWorld) { Studio.toast('先にSVGを貼ってください', { kind: 'error', sticky: true }); return; }
+  stopMotionPreview();
+  var format = values.motFormat;
+  var p = (format === 'svgZip' || format === 'pngZip') ? exportMotionSequence() : exportMotionVideo();
+  p.catch(function (e) { Studio.toast(e.message || '書き出しに失敗しました', { kind: 'error', sticky: true }); });
+}
+
+/* --- 上部バー共通操作（Studio.stageBar・§13 VID-02/03）用の橋渡し ------------------
+   getParams/apply: パネルの数値（values）＋色（colorState）のスナップショット。
+   frame: 1コマ分のSVG文字列。A/Bが記録されていればparamsを一時的に当ててbuildExportSVG(true)
+   を呼び、終わったら元に戻す。A/B無し（params:null）は既存の動きのプレビュー（動画節の
+   始点→終点をmotDuration/motLoop/motEaseで進めた状態）をt秒時点まで進めた状態で作る。 ------- */
+function motionParams() {
+  var p = {};
+  Object.keys(values).forEach(function (k) { p[k] = values[k]; });
+  p.fill = colorState.fill; p.fillLayer = colorState.fillLayer; p.bg = colorState.bg;
+  return p;
+}
+function applyParamsToState(p) {
+  Object.keys(p).forEach(function (k) {
+    if (k === 'fill' || k === 'fillLayer' || k === 'bg') { colorState[k] = p[k]; }
+    else if (Object.prototype.hasOwnProperty.call(values, k)) { values.set(k, p[k]); }
+  });
+}
+function applyMotionParams(p) { applyParamsToState(p); render(); }
+
+function frameFromOwnMotion(t) {
+  var dur = Math.max(0.1, values.motDuration || 4);
+  var raw = (Math.max(0, t) % dur) / dur;
+  var u = values.motLoop === 'pingpong' ? (raw < 0.5 ? raw * 2 : 2 - raw * 2) : raw;
+  var a = motionCurrentAngles(u);
+  var savedA = values.angleX, savedB = values.angleY, savedC = values.depthSpanPct;
+  values.angleX = a.angleX; values.angleY = a.angleY; values.depthSpanPct = a.depthSpanPct;
+  var svg = buildExportSVG(true);
+  var text = Studio.serializeSVG(svg, { standard: true });
+  document.body.removeChild(svg);
+  values.angleX = savedA; values.angleY = savedB; values.depthSpanPct = savedC;
+  return text;
+}
+function frameForExport(ctx) {
+  if (!state.segsWorld) throw new Error('先にSVGを貼ってください');
+  if (!ctx.params) return frameFromOwnMotion(ctx.t);
+  var beforeValues = {};
+  Object.keys(values).forEach(function (k) { beforeValues[k] = values[k]; });
+  var beforeColor = { fill: colorState.fill, fillLayer: colorState.fillLayer, bg: colorState.bg };
+  applyParamsToState(ctx.params); // render()は呼ばない（書き出し中に画面を毎コマ更新しない）
+  var svg = buildExportSVG(true);
+  var text = Studio.serializeSVG(svg, { standard: true });
+  document.body.removeChild(svg);
+  Object.keys(beforeValues).forEach(function (k) { values.set(k, beforeValues[k]); });
+  colorState.fill = beforeColor.fill; colorState.fillLayer = beforeColor.fillLayer; colorState.bg = beforeColor.bg;
+  return text;
+}
+
+function fileBase() { return Studio.fname(TOOL, 'w' + values.baseWidth); }
+function memoText() { return bar.memoText(); }
+function exportMeta() {
+  var params = {
+    basePath: state.baseD, baseWidth: values.baseWidth,
+    points: state.points.map(function (p) { return { t: p.t, left: p.left, right: p.right }; }),
+    fill: colorState.fill, sourceSvg: state.sourceText,
+    t0: state.t0, reversed: state.reversed,
+    pillarMode: values.pillarMode, evenCount: values.evenCount, splitLR: values.splitLR,
+    rule: values.rule, ruleA: values.ruleA, ruleB: values.ruleB, ruleN: values.ruleN,
+    depthPoints: state.depthPoints.map(function (p) { return { t: p.t, z: p.z }; }),
+    ruleD: values.ruleD, ruleDA: values.ruleDA, ruleDB: values.ruleDB, ruleDN: values.ruleDN,
+    depthLinked: values.depthLinked, depthInvert: values.depthInvert, depthSpanPct: values.depthSpanPct,
+    angleX: values.angleX, angleY: values.angleY, frontScale: values.frontScale, pieceCount: state.pieceCount,
+    interp: values.interp, interpD: values.interpD, fitTol: values.fitTol,
+    fillLayer: colorState.fillLayer, bg: colorState.bg,
+    motion: {
+      angleXStart: values.motAngleXStart, angleXEnd: values.motAngleXEnd,
+      angleYStart: values.motAngleYStart, angleYEnd: values.motAngleYEnd,
+      depthStart: values.motDepthStart, depthEnd: values.motDepthEnd,
+      duration: values.motDuration, fps: values.motFps, loop: values.motLoop, ease: values.motEase,
+      format: values.motFormat, width: values.motWidth, height: values.motHeight, bg: values.motBg
+    }
+  };
+  return { tool: TOOL, pj: PJ, law: LAW, seed: null, memo: memoText(), toolVersion: TOOL_VERSION, paramsVersion: PARAMS_VERSION, params: params };
+}
+function doExportSVG() {
+  if (!state.segsWorld) { Studio.toast('先にSVGを貼ってください', { kind: 'error', sticky: true }); return; }
+  var svg = buildExportSVG(true); // §13 VID-01: 書き出しは背景込み
+  var name = fileBase();
+  Studio.exportSVG(svg, { name: name, standard: true, meta: exportMeta() });
+  document.body.removeChild(svg);
+  Studio.toast(name + '.svg');
+}
+function doCopySVG() {
+  if (!state.segsWorld) { Studio.toast('先にSVGを貼ってください', { kind: 'error', sticky: true }); return; }
+  var svg = buildExportSVG(false); // §8 COPY-01: ⌘C/コピーは地色を含めない
+  var text = Studio.serializeSVG(svg, { standard: true, meta: exportMeta() });
+  document.body.removeChild(svg);
+  Studio.copySVG(text).then(function (result) {
+    Studio.toast(Studio.copyResultMessage(result));
+  }).catch(function (e) {
+    Studio.toast(e.message || 'コピーできませんでした', { kind: 'error', sticky: true });
+  });
+}
+function doExportJSON() {
+  if (!state.segsWorld) { Studio.toast('先にSVGを貼ってください', { kind: 'error', sticky: true }); return; }
+  var data = {
+    baseWidth: values.baseWidth,
+    points: state.points.map(function (p) { return { t: p.t, left: p.left, right: p.right }; }),
+    path: state.baseD,
+    t0: state.t0, reversed: state.reversed,
+    pillarMode: values.pillarMode, evenCount: values.evenCount, splitLR: values.splitLR,
+    rule: values.rule, ruleA: values.ruleA, ruleB: values.ruleB, ruleN: values.ruleN,
+    depthPoints: state.depthPoints.map(function (p) { return { t: p.t, z: p.z }; }),
+    depthLinked: values.depthLinked, depthInvert: values.depthInvert, depthSpanPct: values.depthSpanPct,
+    angleX: values.angleX, angleY: values.angleY, frontScale: values.frontScale, pieceCount: state.pieceCount,
+    interp: values.interp, interpD: values.interpD
+  };
+  var name = fileBase() + '.json';
+  var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  Studio.toast(name);
+}
+
+/* --- 復元（封筒から戻す。§1 RESTORE-01） --------------------------------- */
+// v1（段1のみ・起点/向き/柱/規則なし）→v2 の移行。既定値で補う（RESTORE-01）。
+function migrateParamsV1toV2(env) {
+  var p = env.params || {};
+  env.params = {
+    basePath: p.basePath, baseWidth: p.baseWidth, points: p.points, fill: p.fill, sourceSvg: p.sourceSvg,
+    t0: 0, reversed: false, pillarMode: 'free', evenCount: 8, splitLR: false,
+    rule: 'same', ruleA: p.baseWidth || 6, ruleB: p.baseWidth || 6, ruleN: 1
+  };
+  env.paramsVersion = 2;
+  return env;
+}
+// v2（段2まで・奥行き/リンク/角度なし）→v3 の移行。既定値で補う（RESTORE-01）。
+function migrateParamsV2toV3(env) {
+  var p = env.params || {};
+  env.params = {
+    basePath: p.basePath, baseWidth: p.baseWidth, points: p.points, fill: p.fill, sourceSvg: p.sourceSvg,
+    t0: p.t0 || 0, reversed: !!p.reversed,
+    pillarMode: p.pillarMode || 'free', evenCount: p.evenCount || 8, splitLR: !!p.splitLR,
+    rule: p.rule || 'same', ruleA: p.ruleA != null ? p.ruleA : (p.baseWidth || 6), ruleB: p.ruleB != null ? p.ruleB : (p.baseWidth || 6), ruleN: p.ruleN || 1,
+    depthPoints: [], ruleD: 'same', ruleDA: 0, ruleDB: 0, ruleDN: 1,
+    linkMode: 'independent', depthSpanPct: 60, linkWidthA: 3, linkWidthB: 16,
+    angleX: 0, angleY: 0, frontScale: 0.35, pieceCount: 64,
+    fillLayer: '#a1cbed'
+  };
+  env.paramsVersion = 3;
+  return env;
+}
+// v3（線幅⇄奥行きのリンクがk比例だった旧版）→v4 の移行。旧kは捨て、奥行きの深さ%と遠近で太さを変える(旧「手前ほど太くする」)の
+// 既定値に置き換える（2026-09-24・ユーザー指摘「線幅をかなり太くしないと奥行きが出ない」への対応。
+// k比例は細い線幅では図形の大きさに対して奥行きがほぼ付かなかったため、正規化方式に変更した）。
+function migrateParamsV3toV4(env) {
+  var p = env.params || {};
+  p.depthSpanPct = 60; p.linkWidthA = 3; p.linkWidthB = 16;
+  if (p.frontScale === 0 || p.frontScale == null) p.frontScale = 0.35;
+  delete p.linkK;
+  env.params = p;
+  env.paramsVersion = 4;
+  return env;
+}
+// v4（常時リンクがあった旧版）→v5 の移行（2026-09-25・ユーザー決定でリンクの常時連動を廃止し
+// 「線幅と同じ形にする」ボタンに変更）。旧 linkMode==='widthToDepth' だった封筒は、そのボタンを
+// 1回押したのと同じ変換（Depth.depthFromWidth）を今の points から適用して奥行きの柱を作る。
+// linkMode/linkWidthA/linkWidthBは廃止（削除）。
+function migrateParamsV4toV5(env) {
+  var p = env.params || {};
+  if (p.linkMode === 'widthToDepth' && Array.isArray(p.points) && p.points.length) {
+    var widths = p.points.map(function (pt) { return (pt.left + pt.right) / 2; });
+    var zs = Depth.linkedDepth(widths, false);
+    p.depthPoints = p.points.map(function (pt, i) { return { t: pt.t, z: zs[i] }; });
+  }
+  delete p.linkMode; delete p.linkWidthA; delete p.linkWidthB;
+  env.params = p;
+  env.paramsVersion = 5;
+  return env;
+}
+// v5（補間の切替がなかった旧版）→v6 の移行。既定「柱を通す」（従来のCatmull-Rom）を補う。
+function migrateParamsV5toV6(env) {
+  var p = env.params || {};
+  p.interp = 'catmull'; p.interpD = 'catmull';
+  env.params = p;
+  env.paramsVersion = 6;
+  return env;
+}
+// v6（「線幅に連動」ON/OFFの出し分けがなかった旧版）→v7 の移行（段5・2026-09-25 UI再編）。
+// 常時「線幅に連動」ON・「太い方を奥にする」OFFを既定にする（旧「線幅と同じ形にする」ボタンの
+// 既定的な使われ方＝太い方が手前、と揃える）。旧depthPointsはそのまま保持し、連動OFFへ
+// 切り替えた瞬間にいつでも使えるようにする（削除しない）。
+function migrateParamsV6toV7(env) {
+  var p = env.params || {};
+  p.depthLinked = true; p.depthInvert = false;
+  if (p.depthSpanPct == null) p.depthSpanPct = 60;
+  env.params = p;
+  env.paramsVersion = 7;
+  return env;
+}
+// v7（「動画」節が無かった旧版）→v8の移行。既定値（角度0→0・深さは現在値のまま・4秒24fps一回）を補う。
+function migrateParamsV7toV8(env) {
+  var p = env.params || {};
+  var d = p.depthSpanPct != null ? p.depthSpanPct : 60;
+  p.motion = p.motion || {
+    angleXStart: 0, angleXEnd: 0, angleYStart: 0, angleYEnd: 360,
+    depthStart: d, depthEnd: d, duration: 4, fps: '24', loop: 'once', ease: 'linear',
+    format: 'webm', width: 600, height: 600, bg: 'orig'
+  };
+  env.params = p;
+  env.paramsVersion = 8;
+  return env;
+}
+// v8（背景色(bg)が無かった旧版）→v9の移行（006_ツールの規格 §0・§5 COLOR-00）。旧SVGは白背景として復元する。
+function migrateParamsV8toV9(env) {
+  var p = env.params || {};
+  if (p.bg == null) p.bg = '#FFFFFF';
+  env.params = p;
+  env.paramsVersion = 9;
+  return env;
+}
+// v9（帯のなめらかさ(fitTol)が無かった旧版）→v10の移行。旧版の書き出しは0.15だったが、アンカーを減らすため0.5で復元する（持ち主決定 2026-10-04）。
+function migrateParamsV9toV10(env) {
+  var p = env.params || {};
+  if (p.fitTol == null) p.fitTol = FIT_TOL_DEFAULT;
+  env.params = p;
+  env.paramsVersion = 10;
+  return env;
+}
+var RESTORE_CONTRACT = {
+  tool: TOOL, toolVersion: TOOL_VERSION, paramsVersion: PARAMS_VERSION,
+  migrate: function (env) {
+    if (env.paramsVersion === 1) env = migrateParamsV1toV2(env);
+    if (env.paramsVersion === 2) env = migrateParamsV2toV3(env);
+    if (env.paramsVersion === 3) env = migrateParamsV3toV4(env);
+    if (env.paramsVersion === 4) env = migrateParamsV4toV5(env);
+    if (env.paramsVersion === 5) env = migrateParamsV5toV6(env);
+    if (env.paramsVersion === 6) env = migrateParamsV6toV7(env);
+    if (env.paramsVersion === 7) env = migrateParamsV7toV8(env);
+    if (env.paramsVersion === 8) env = migrateParamsV8toV9(env);
+    if (env.paramsVersion === 9) env = migrateParamsV9toV10(env);
+    return env;
+  },
+  validate: function (params) {
+    if (!params || typeof params.sourceSvg !== 'string' || !params.sourceSvg) return 'sourceSvgが必要です';
+    if (!Array.isArray(params.points)) return 'pointsが必要です';
+    return true;
+  }
+};
+function applyRestoredEnv(env) {
+  var next;
+  try { next = Studio.prepareRestore(env, RESTORE_CONTRACT); }
+  catch (e) { Studio.toast(e.message || '復元できませんでした', { kind: 'error', sticky: true }); return; }
+  var p = next.params;
+  document.getElementById('svgPaste').value = p.sourceSvg;
+  var ok = loadSourceSvg(p.sourceSvg, true);
+  if (!ok) return;
+  values.set('baseWidth', p.baseWidth);
+  colorState.fill = p.fill || pickDefaultColors().band;
+  state.points = p.points.map(function (pt) { return { t: pt.t, left: pt.left, right: pt.right }; });
+  state.t0 = p.t0 || 0; state.reversed = !!p.reversed;
+  values.set('pillarMode', p.pillarMode || 'free');
+  values.set('evenCount', p.evenCount || 8);
+  values.set('splitLR', !!p.splitLR);
+  values.set('rule', p.rule || 'same');
+  values.set('ruleA', p.ruleA != null ? p.ruleA : 6);
+  values.set('ruleB', p.ruleB != null ? p.ruleB : 6);
+  values.set('ruleN', p.ruleN || 1);
+  state.depthPoints = (p.depthPoints || []).map(function (pt) { return { t: pt.t, z: pt.z }; });
+  values.set('ruleD', p.ruleD || 'same');
+  values.set('ruleDA', p.ruleDA != null ? p.ruleDA : 0);
+  values.set('ruleDB', p.ruleDB != null ? p.ruleDB : 0);
+  values.set('ruleDN', p.ruleDN || 1);
+  values.set('depthLinked', p.depthLinked !== false);
+  values.set('depthInvert', !!p.depthInvert);
+  values.set('depthSpanPct', p.depthSpanPct != null ? p.depthSpanPct : 60);
+  values.set('angleX', p.angleX || 0);
+  values.set('angleY', p.angleY || 0);
+  values.set('frontScale', p.frontScale != null ? p.frontScale : 0.35);
+  values.set('interp', p.interp || 'catmull');
+  values.set('interpD', p.interpD || 'catmull');
+  values.set('fitTol', p.fitTol != null ? p.fitTol : FIT_TOL_DEFAULT);
+  state.pieceCount = p.pieceCount || 64;
+  colorState.fillLayer = p.fillLayer || pickDefaultColors().layer;
+  colorState.bg = p.bg || '#FFFFFF';
+  if (sb && sb.colors) { sb.colors.set('fill', colorState.fill); sb.colors.set('fillLayer', colorState.fillLayer); sb.colors.set('bg', colorState.bg); }
+  if (p.motion) {
+    var m = p.motion;
+    values.set('motAngleXStart', m.angleXStart || 0); values.set('motAngleXEnd', m.angleXEnd || 0);
+    values.set('motAngleYStart', m.angleYStart || 0); values.set('motAngleYEnd', m.angleYEnd != null ? m.angleYEnd : 360);
+    values.set('motDepthStart', m.depthStart != null ? m.depthStart : 60); values.set('motDepthEnd', m.depthEnd != null ? m.depthEnd : 60);
+    values.set('motDuration', m.duration || 4); values.set('motFps', m.fps || '24');
+    values.set('motLoop', m.loop || 'once'); values.set('motEase', m.ease || 'linear');
+    values.set('motFormat', m.format || 'webm'); values.set('motWidth', m.width || 600); values.set('motHeight', m.height || 600);
+    values.set('motBg', m.bg || 'orig');
+  }
+  updatePillarRowsVisibility();
+  updateRuleRowsVisibility();
+  updateRuleDRowsVisibility();
+  updateDepthLinkVisibility();
+  state.selected = -1;
+  updateSelectedRowsVisibility();
+  bar.setMemo(next.memo || '');
+  render();
+  pushHistory();
+  Studio.toast('設定を戻しました（' + (next.date || '日時不明') + '）');
+}
+
+/* --- 取り込み: ドロップ／貼り付け ----------------------------------------- */
+function handleIncomingText(text) {
+  var result = Studio.inspectEnvelope(text);
+  if (result.status === 'ok' && result.env.tool === TOOL) { applyRestoredEnv(result.env); return; }
+  loadSourceSvg(text);
+}
+Studio.onDropSVG(stage, function (env, file, result) {
+  if (!result) return;
+  if (result.status === 'ok' && result.env.tool === TOOL) { applyRestoredEnv(result.env); return; }
+  var r = new FileReader();
+  r.onload = function () { loadSourceSvg(r.result); };
+  r.readAsText(file);
+});
+document.getElementById('loadPasteBtn').addEventListener('click', function () {
+  var text = document.getElementById('svgPaste').value;
+  if (!text.trim()) { setError('SVGの文字列が空です'); return; }
+  handleIncomingText(text);
+});
+window.addEventListener('paste', function (e) {
+  var tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+  if (tag === 'textarea' || tag === 'input') return; // 貼り付け欄自身へのペーストは素通し
+  var text = (e.clipboardData || window.clipboardData).getData('text');
+  if (text && /<svg[\s>]/i.test(text)) {
+    e.preventDefault();
+    document.getElementById('svgPaste').value = text;
+    handleIncomingText(text);
+  }
+});
+
+/* --- 初期表示: 内蔵サンプル（角丸四角）＋「交互」を適用した柱8本を説明なしで表示 ------- */
+document.getElementById('svgPaste').value = SAMPLE_SVG;
+loadSourceSvg(SAMPLE_SVG, true, INIT_SCALE);
+if (state.segsWorld) {
+  regenerateAllPillars(); // 既定: 柱=等間隔8本・幅の規則=交互（3px/20px）。奥行きは既定で「線幅に連動」ON。
+  updateDepthLinkVisibility(); // 起動直後にも節の出し分け・奥行きグラフの表示/非表示を確定させる
+}
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

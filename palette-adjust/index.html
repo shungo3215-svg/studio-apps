@@ -1,0 +1,327 @@
+<!doctype html>
+<html data-sm-build="8b7e236・2026-10-28 09:33" data-sm-app="palette-adjust" lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="studio-spec" content="type:眺める;features:numeric,color">
+<title>配色の調整</title>
+<link rel="stylesheet" href="_ext/000_kit/studio2.css?v=0.7.8">
+<style>
+  /* 元と案を横並びに流す。studio2.css の #stage は中央寄せが既定なので、このツールだけ左上から広げる */
+  #stage{ align-items: stretch; justify-content: flex-start; overflow: auto; }
+  #row{ display: grid; width: 100%; gap: 12px; align-content: start; }
+  .cell{ display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .cell-head{ font: var(--t-w-head) 11px/1 var(--font); color: var(--onSurfaceVariant); letter-spacing: .08em; display: flex; justify-content: space-between; }
+  .cell-view{ border: var(--bd, 1px) solid var(--outline); border-radius: var(--r-xs, 2px); aspect-ratio: 3 / 4; overflow: hidden; display: flex; }
+  .cell-view img{ width: 100%; height: 100%; object-fit: contain; display: block; }
+  .cell.is-ok .cell-view{ border-color: var(--onSurface); border-width: 3px; }
+  .cell.is-ng .cell-view{ opacity: .45; }
+  .cell-delta{ font: var(--t-w-label) 11px/1.4 var(--font); color: var(--onSurface); overflow-wrap: anywhere; }
+  .cell-delta .seed{ font: var(--t-w-num) 9px/1 var(--mono); color: var(--onSurfaceVariant); margin-left: 4px; }
+
+  .grp{ padding: var(--pad, 16px) var(--sp-m, 16px); border-bottom: var(--bd, 1px) solid var(--outlineBright); display: flex; flex-direction: column; gap: 8px; }
+  .grp-ttl{ font: var(--t-w-head) 11px/1 var(--font); color: var(--onSurfaceVariant); letter-spacing: .08em; }
+  .grp textarea{ width: 100%; height: 56px; resize: vertical; font: var(--t-w-num) 10px/1.3 var(--mono); border: var(--bd, 1px) solid var(--outline); border-radius: var(--r-xs, 2px); background: var(--surface); color: var(--onSurface); padding: 6px; box-sizing: border-box; }
+  .status{ font: var(--t-w-label) 11px/1.4 var(--font); color: var(--onSurfaceVariant); }
+  .status.err{ color: var(--error, #B3261E); }
+  .crow{ display: grid; grid-template-columns: 44px 62px 1fr 28px 38px; align-items: center; gap: 6px; font: var(--t-w-label) 11px/1.3 var(--font); color: var(--onSurface); }
+  .crow .sw{ height: 18px; border: var(--bd, 1px) solid var(--outline); border-radius: var(--r-xs, 2px); }
+  .crow .hex{ font: var(--t-w-num) 11px/1 var(--mono); }
+  .crow .use{ color: var(--onSurfaceVariant); }
+  .crow .num{ text-align: right; font: var(--t-w-num) 11px/1 var(--mono); color: var(--onSurfaceVariant); }
+  .crow label{ display: flex; align-items: center; gap: 3px; justify-content: flex-end; }
+  .crow input.gname{ width: 100%; min-width: 0; box-sizing: border-box; height: 22px; font: var(--t-w-label) 11px/1 var(--font); border: var(--bd, 1px) solid var(--outline); border-radius: var(--r-xs, 2px); background: var(--surface); color: var(--onSurface); padding: 0 4px; }
+  .rng{ display: grid; grid-template-columns: 1fr 64px 20px; align-items: center; gap: 6px; font: var(--t-w-label) 12px/1.3 var(--font); }
+  .rng input[type=number], .opt input[type=number]{ width: 100%; box-sizing: border-box; height: 26px; text-align: right; font: var(--t-w-num) 11px/1 var(--mono); border: var(--bd, 1px) solid var(--outline); border-radius: var(--r-xs, 2px); background: var(--surface); color: var(--onSurface); }
+  .rng .tmp{ font: var(--t-w-label) 9px/1 var(--font); color: var(--onSurfaceVariant); }
+  .opt{ display: grid; grid-template-columns: 1fr 64px; align-items: center; gap: 6px; font: var(--t-w-label) 12px/1.3 var(--font); }
+  .opt-check{ display: flex; align-items: center; gap: 6px; font: var(--t-w-label) 12px/1.3 var(--font); }
+  .vrow{ display: grid; grid-template-columns: 36px 30px 30px 1fr; gap: 6px; align-items: center; font: var(--t-w-label) 12px/1 var(--font); }
+  .vrow .btn{ min-width: 0; padding: 0; height: 26px; justify-content: center; }
+  .vrow .btn.on{ background: var(--onSurface); color: var(--surface); }
+  .vrow input.note{ width: 100%; min-width: 0; box-sizing: border-box; height: 26px; font: var(--t-w-label) 11px/1 var(--font); border: var(--bd, 1px) solid var(--outline); border-radius: var(--r-xs, 2px); background: var(--surface); color: var(--onSurface); padding: 0 6px; }
+  .cmn-colors{ margin-left: 4px; }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body>
+
+<header id="bar"></header>
+
+<div id="main">
+  <div id="stage"><div id="row"></div></div>
+  <aside id="panel">
+    <section class="grp" id="g-paste">
+      <div class="grp-ttl">SVG を貼る</div>
+      <textarea id="paste-box" spellcheck="false" aria-label="SVG のコードを貼る欄" title="SVG のコードを貼る（画面のどこでも ⌘V で貼れる）"></textarea>
+      <div class="status" id="status"></div>
+    </section>
+    <section class="grp" id="g-colors" hidden>
+      <div class="grp-ttl">色の一覧</div>
+      <div id="color-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+    </section>
+    <section class="grp" id="g-range">
+      <div class="grp-ttl">幅</div>
+      <div class="rng"><span>明度 ±（OKLCH の L）</span><input type="number" id="in-L" value="0.04" min="0" max="0.5" step="0.01" aria-label="明度の幅"><span class="tmp">仮</span></div>
+      <div class="rng"><span>彩度 ±（OKLCH の C）</span><input type="number" id="in-C" value="0.03" min="0" max="0.4" step="0.005" aria-label="彩度の幅（OKLCH の C）"><span class="tmp">仮</span></div>
+      <div class="rng"><span>色相 ±（°）</span><input type="number" id="in-H" value="2" min="0" max="180" step="1" aria-label="色相の幅（度）"><span class="tmp">仮</span></div>
+    </section>
+    <section class="grp" id="g-make">
+      <div class="opt"><span>案の数（3〜6）</span><input type="number" id="in-N" value="3" min="3" max="6" step="1" aria-label="案の数"></div>
+      <label class="opt-check"><input type="checkbox" id="in-lock" checked>色相を動かさない</label>
+      <button class="btn" id="btn-remake" type="button">別の動かし方で作り直す</button>
+    </section>
+    <section class="grp" id="g-verdict">
+      <div class="grp-ttl">案ごとの採否</div>
+      <div id="verdict-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+    </section>
+  </aside>
+</div>
+
+<script src="_ext/000_kit/studio-kit.js?v=0.7.10"></script>
+<script src="palette-adjust.js?v=3"></script>
+<script>
+(function () {
+  var PA = window.PaletteAdjust;
+  var $ = function (id) { return document.getElementById(id); };
+  var S = { text: null, model: null, seed: 1, n: 3, bg: '#FFFFFF', variants: [], fixed: {}, names: {}, verdict: [], note: [] };
+
+  /* ---- 上部バー ---- */
+  var ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+  Studio.appBar('#bar', {
+    name: '配色の調整',
+    onCopy: doCopy, onSvg: doExportSvg, onPng: null,
+    copyLabel: 'コピー',
+    svgLabel: 'SVG', svgTitle: '○を付けた案の SVG を書き出す', svgAriaLabel: '採用案の SVG を書き出す', svgIcon: ICON_DOWNLOAD,
+    extra: [{ label: 'JSON', id: 'json', title: '色の対応表と採否を JSON で書き出す', onClick: doExportJson, icon: ICON_DOWNLOAD, ariaLabel: '色の対応表と採否を JSON で書き出す' }],
+    memo: false, caption: false
+  });
+  var sb = Studio.stageBar('#bar', {
+    sizes: false, motion: false,
+    colors: [{ key: 'bg', label: '背景', value: '#FFFFFF' }],
+    palettes: true,
+    onColorChange: function (k, v) { if (k === 'bg') { S.bg = v === 'none' ? 'transparent' : v; paintBg(); } }
+  });
+  Studio.keys({ copy: doCopy, escSteps: [sb.closeDialog] });
+
+  function paintBg() { document.querySelectorAll('.cell-view').forEach(function (e) { e.style.background = S.bg; }); }
+  function stamp() {
+    var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
+  function status(msg, err) { var e = $('status'); e.textContent = msg; e.className = 'status' + (err ? ' err' : ''); }
+  function opts() {
+    return { L: num('in-L', 0.04), C: num('in-C', 0.03), H: num('in-H', 2), lockHue: $('in-lock').checked, fixed: S.fixed, names: S.names };
+  }
+  function num(id, d) { var v = parseFloat($(id).value); return isFinite(v) && v >= 0 ? v : d; }
+  function dataUrl(svg) { return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); }
+
+  /* ---- 読み込み ---- */
+  function load(text, quiet) {
+    var m;
+    try {
+      m = PA.parse(text);
+    } catch (e) { status(e.message, true); Studio.toast(e.message, { kind: 'error' }); return; }
+    S.text = text; S.model = m; S.fixed = {}; S.names = {}; S.verdict = []; S.note = [];
+    m.gradients.forEach(function (g, i) { S.names['g:' + i] = g.hueName; });
+    m.colors.forEach(function (c) {
+      var o = PA.oklch(c.hex);   // 白・黒は動かすと元の意図から外れやすいので、既定で固定にする
+      if (o.C < 0.02 && (o.L > 0.97 || o.L < 0.05)) S.fixed[c.hex] = true;
+    });
+    status('');
+    if (!quiet) Studio.toast('SVG を読み込みました（' + m.colors.length + ' 色）');
+    renderColors(); remake(false);
+  }
+
+  function renderColors() {
+    var m = S.model, box = $('color-rows'); box.innerHTML = '';
+    $('g-colors').hidden = false;
+    function row(sw, hexEl, use, count, key) {
+      var r = document.createElement('div'); r.className = 'crow'; r.setAttribute('data-color-row', key);
+      var s = document.createElement('div'); s.className = 'sw'; s.style.background = sw; r.appendChild(s);
+      r.appendChild(hexEl);
+      var u = document.createElement('div'); u.className = 'use'; u.textContent = use; r.appendChild(u);
+      var c = document.createElement('div'); c.className = 'num'; c.textContent = count; r.appendChild(c);
+      var l = document.createElement('label'); var cb = document.createElement('input'); cb.type = 'checkbox';
+      cb.checked = !!S.fixed[key]; cb.setAttribute('aria-label', '固定する');
+      cb.onchange = function () { if (cb.checked) S.fixed[key] = true; else delete S.fixed[key]; remake(false); };
+      l.appendChild(cb); l.appendChild(document.createTextNode('固定')); r.appendChild(l);
+      box.appendChild(r);
+    }
+    m.gradients.forEach(function (g, i) {
+      var key = 'g:' + i, inp = document.createElement('input');
+      inp.className = 'gname'; inp.type = 'text'; inp.value = S.names[key]; inp.setAttribute('aria-label', 'グラデの系統名');
+      inp.oninput = function () { S.names[key] = inp.value; renderStage(); };
+      row('linear-gradient(90deg,' + g.stops.join(',') + ')', inp, 'グラデ（' + g.stops.length + '段）', g.ids.length, key);
+    });
+    m.colors.forEach(function (c) {
+      var h = document.createElement('div'); h.className = 'hex'; h.textContent = c.hex;
+      var use = [];
+      if (c.hex === m.bgHex) use.push('背景');
+      if (c.uses.fill && c.hex !== m.bgHex) use.push('塗り');
+      if (c.uses.stroke) use.push('線');
+      row(c.hex, h, use.join('・'), c.count, c.hex);
+    });
+  }
+
+  /* ---- 案 ---- */
+  function remake(newSeed) {
+    if (!S.model) return;
+    if (newSeed) S.seed = 1000 + Math.floor(Math.random() * 9000);
+    S.n = Math.max(3, Math.min(6, Math.round(num('in-N', 3))));
+    var o = opts(); S.variants = [];
+    for (var i = 0; i < S.n; i++) {
+      var g = PA.generate(S.model, o, S.seed + i * 7919);
+      g.svg = PA.apply(S.text, g.mapping);
+      S.variants.push(g);
+    }
+    S.verdict.length = S.n; S.note.length = S.n;
+    renderStage(); renderVerdicts();
+  }
+
+  function cell(label, svg, deltaHtml, idx) {
+    var c = document.createElement('div'); c.className = 'cell';
+    if (idx != null) c.setAttribute('data-variant', idx + 1);
+    else c.setAttribute('data-original', '1');
+    var hd = document.createElement('div'); hd.className = 'cell-head'; hd.textContent = label; c.appendChild(hd);
+    var v = document.createElement('div'); v.className = 'cell-view'; v.style.background = S.bg;
+    var img = document.createElement('img'); img.alt = label; img.src = dataUrl(svg); v.appendChild(img); c.appendChild(v);
+    var d = document.createElement('div'); d.className = 'cell-delta';
+    if (deltaHtml) deltaHtml(d); else d.textContent = '読み込んだ SVG のまま';
+    c.appendChild(d);
+    return c;
+  }
+
+  function renderStage() {
+    var row = $('row'); row.innerHTML = '';
+    if (!S.model) { row.style.gridTemplateColumns = '1fr'; return; }
+    row.style.gridTemplateColumns = 'repeat(' + (S.n + 1) + ', minmax(0, 1fr))';
+    row.appendChild(cell('元', S.text, null, null));
+    S.variants.forEach(function (v, i) {
+      var c = cell('案 ' + (i + 1), v.svg, function (d) {
+        var ds = v.deltas.map(function (x) {
+          if (x.kind === 'gradient') x.name = S.names[x.key] || x.name;
+          return PA.deltaText(x);
+        });
+        var show = ds.slice(0, 3).join(' ・ ') + (ds.length > 3 ? ' ほか ' + (ds.length - 3) + ' 件' : '');
+        d.title = ds.join('\n');
+        d.textContent = ds.length ? show : 'すべて固定のため動かしていません';
+        var sd = document.createElement('span'); sd.className = 'seed'; sd.textContent = '#' + S.seed; d.appendChild(sd);
+      }, i);
+      c.classList.toggle('is-ok', S.verdict[i] === 'ok'); c.classList.toggle('is-ng', S.verdict[i] === 'ng');
+      row.appendChild(c);
+    });
+  }
+
+  function renderVerdicts() {
+    var box = $('verdict-rows'); box.innerHTML = '';
+    for (var i = 0; i < S.n; i++) (function (i) {
+      var r = document.createElement('div'); r.className = 'vrow'; r.setAttribute('data-vrow', i + 1);
+      var t = document.createElement('span'); t.textContent = '案 ' + (i + 1); r.appendChild(t);
+      function btn(label, val, aria) {
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.textContent = label; b.setAttribute('aria-label', '案 ' + (i + 1) + ' を' + aria);
+        b.classList.toggle('on', S.verdict[i] === val);
+        b.onclick = function () { S.verdict[i] = S.verdict[i] === val ? null : val; renderVerdicts(); markCells(); };
+        return b;
+      }
+      r.appendChild(btn('○', 'ok', '採用にする')); r.appendChild(btn('×', 'ng', '不採用にする'));
+      var n = document.createElement('input'); n.type = 'text'; n.className = 'note'; n.placeholder = '一言'; n.value = S.note[i] || '';
+      n.setAttribute('aria-label', '案 ' + (i + 1) + ' の一言'); n.oninput = function () { S.note[i] = n.value; };
+      r.appendChild(n); box.appendChild(r);
+    })(i);
+  }
+  function markCells() {
+    document.querySelectorAll('[data-variant]').forEach(function (c) {
+      var i = +c.getAttribute('data-variant') - 1;
+      c.classList.toggle('is-ok', S.verdict[i] === 'ok'); c.classList.toggle('is-ng', S.verdict[i] === 'ng');
+    });
+  }
+
+  /* ---- 書き出し ---- */
+  function adopted() {
+    var i = S.verdict.indexOf('ok');
+    return i < 0 ? null : S.variants[i];
+  }
+  function doExportSvg() {
+    var v = adopted();
+    if (!v) { Studio.toast('○ を付けた案がありません。案ごとの採否で ○ を付けてください', { kind: 'error' }); return; }
+    var name = 'palette-adjust_' + stamp() + '.svg';
+    Studio.dl(new Blob([v.svg], { type: 'image/svg+xml' }), name);
+    Studio.toast(name + ' を書き出しました');
+  }
+  function doCopy() {
+    var v = adopted();
+    if (!v) { Studio.toast('○ を付けた案がありません。案ごとの採否で ○ を付けてください', { kind: 'error' }); return; }
+    Promise.resolve(Studio.copySVG(v.svg)).then(function (r) { Studio.toast(Studio.copyResultMessage ? Studio.copyResultMessage(r) : 'コピーしました'); });
+  }
+  function doExportJson() {
+    if (!S.model) { Studio.toast('SVG を読み込んでから書き出してください', { kind: 'error' }); return; }
+    var o = opts();
+    var obj = {
+      source: 'palette-adjust', date: new Date().toISOString(), seed: S.seed,
+      range: { L: o.L, C: o.C, H: o.H, lockHue: o.lockHue },
+      variants: S.variants.map(function (v, i) {
+        return { index: i + 1, mapping: v.mapping, deltas: v.deltas.map(function (d) {
+          return { key: d.key, name: d.name, L: +d.dL.toFixed(4), C_percent: +d.dC.toFixed(2), H: +d.dH.toFixed(2) };
+        }), verdict: S.verdict[i] || null, note: S.note[i] || '' };
+      })
+    };
+    var name = 'palette-adjust_' + stamp() + '.json';
+    Studio.dl(new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' }), name);
+    Studio.toast(name + ' を書き出しました');
+  }
+
+  /* ---- 貼り付け（image/svg+xml → text/plain → text/html の順・§8） ---- */
+  function fromHtml(h) { var m = /<svg[\s\S]*<\/svg>/i.exec(h || ''); return m ? m[0] : ''; }
+  document.addEventListener('paste', function (e) {
+    var t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;   // 欄の中は欄の input で受ける
+    var cd = e.clipboardData; if (!cd) return;
+    var s = cd.getData('image/svg+xml') || cd.getData('text/plain') || fromHtml(cd.getData('text/html'));
+    if (!/<svg[\s>]/i.test(s || '')) { status('貼られた内容に SVG が見つかりません', true); Studio.toast('貼られた内容に SVG が見つかりません', { kind: 'error' }); return; }
+    e.preventDefault(); $('paste-box').value = s; load(s);
+  });
+  $('paste-box').addEventListener('input', function () {
+    var s = this.value; if (!s.trim()) return;
+    if (!/<svg[\s>]/i.test(s)) { status('SVG のコードではありません', true); return; }
+    load(s);
+  });
+
+  ['in-L', 'in-C', 'in-H', 'in-N', 'in-lock'].forEach(function (id) { $(id).addEventListener('change', function () { remake(false); }); });
+  $('btn-remake').onclick = function () { remake(true); };
+
+  /* INIT-01: 開いた直後は、青い円1つを入力にして元と案を並べる（貼ると置き換わる） */
+  var INIT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400" width="300" height="400"><circle cx="150" cy="200" r="95" fill="#0044CC"/></svg>';
+  renderStage();
+  load(INIT_SVG, true);
+  /* スマホ版: 他ツールの「保存」直後の「配色を検討」で渡された SVG（studio-vault.js が localStorage に置く）を読み込む */
+  try {
+    var hand = localStorage.getItem('studio-vault.lastSVG');
+    if (hand) { localStorage.removeItem('studio-vault.lastSVG'); if (/<svg[\s>]/i.test(hand)) { $('paste-box').value = hand; load(hand); } }
+  } catch (e) {}
+  var q = new URLSearchParams(location.search).get('sample');   // 開発用: ?sample=<相対パス> で SVG を読み込む
+  if (q) fetch(q).then(function (r) { return r.text(); }).then(function (t) { $('paste-box').value = t; load(t); }).catch(function (e) { status('読み込めませんでした: ' + e.message, true); });
+})();
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

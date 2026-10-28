@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<html data-sm-build="35cda11・2026-10-28 09:33" data-sm-app="bspline" lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="studio-spec" content="type:描いて増やす;features:svg,numeric,color">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="SPLINE">
+<meta name="theme-color" content="#ffffff">
+<title>Bスプライン</title>
+<link rel="stylesheet" href="_ext/000_kit/studio2.css?v=0.7.8">
+<style>
+/* 骨格（版面・基底関数の帯・再生バー・タブ付きパネル）はこのツール固有。
+   色・文字・ボタン・上部バーは studio2.css / studio-tokens.css（--t-*）に従う。 */
+:root{
+  --param-h:158px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{-webkit-tap-highlight-color:transparent}
+body{
+  display:flex;flex-direction:column;overscroll-behavior:none;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);
+}
+#bar{flex:0 0 auto}
+#main{flex:1 1 auto;min-height:0;height:auto}
+.stage{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surfaceDim)}
+#canvasWrap{flex:1 1 auto;position:relative;min-height:0}
+#view{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+.viewbar{
+  display:flex;gap:6px;padding:8px 16px;border-top:1px solid var(--outlineBright);
+  background:var(--surface);flex:0 0 auto;overflow-x:auto;scrollbar-width:none;
+}
+.viewbar::-webkit-scrollbar{display:none}
+.viewbar .chip{flex:none;white-space:nowrap}
+
+.param{flex:0 0 auto;border-top:1px solid var(--outlineBright);background:var(--surface)}
+.param-head{display:flex;align-items:center;gap:12px;padding:6px 16px 2px}
+.param-head .jp{font:var(--t-w-label) var(--t-fs-label)/1.4 var(--font)}
+.param-head .sp{flex:1}
+#paramCv{display:block;width:100%;height:var(--param-h);touch-action:none}
+.param.min #paramCv{height:46px}
+
+.transport{
+  display:none;align-items:center;gap:12px;padding:8px 16px;
+  border-top:1px solid var(--outlineBright);background:var(--surface);flex:0 0 auto;
+}
+.transport.on{display:flex}
+#play{
+  width:34px;height:34px;border-radius:50%;border:0;background:var(--onSurface);color:var(--surface);
+  display:flex;align-items:center;justify-content:center;font-size:12px;flex:0 0 auto;font-weight:700;cursor:pointer;
+}
+#timeline{flex:1;height:30px;display:block;touch-action:none}
+.tnum{font:var(--t-w-num) var(--t-fs-num)/1 var(--mono);font-variant-numeric:tabular-nums;flex:0 0 auto}
+
+/* パネル（タブ付き） */
+#panel{display:flex;flex-direction:column}
+.tabs{display:flex;position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--outlineBright);flex:0 0 auto}
+.tabs button{
+  flex:1;height:40px;border:0;border-bottom:2px solid transparent;background:none;cursor:pointer;
+  font:var(--t-w-label) var(--t-fs-label)/1 var(--font);color:var(--muted);
+}
+.tabs button:hover{background:var(--hovered)}
+.tabs button[aria-pressed="true"]{color:var(--onSurface);border-bottom-color:var(--onSurface);font-weight:var(--t-w-head)}
+.tabsec{display:none;padding:16px 16px 32px}
+.tabsec.on{display:block}
+.tabsec h2{font:var(--t-w-head) var(--t-fs-head)/1 var(--font);letter-spacing:.12em;margin:24px 0 12px}
+.tabsec h2:first-child{margin-top:0}
+.fieldlabel{font:var(--t-w-label) var(--t-fs-label)/1.3 var(--font);margin:0 0 8px}
+.fieldlabel.gap{margin-top:16px}
+
+/* 数値の行（スライダー＋数値欄。数値は直接入力できる・§5） */
+.ctl{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.ctl > label{font:var(--t-w-label) var(--t-fs-label)/1.3 var(--font);flex:0 0 60px;cursor:ew-resize;user-select:none}
+.ctl input[type=range]{flex:1;min-width:0;width:auto}
+.num{
+  flex:0 0 auto;width:58px;height:26px;padding:0 4px;text-align:right;
+  border:0;border-bottom:var(--t-line) solid var(--onSurface);border-radius:0;background:transparent;color:var(--onSurface);
+  font:var(--t-w-num) var(--t-fs-num)/1 var(--mono);font-variant-numeric:tabular-nums;-moz-appearance:textfield;
+}
+.num:focus{outline:none;background:var(--hovered)}
+.num::-webkit-outer-spin-button,.num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.unit{flex:0 0 16px;font:var(--t-w-label) 11px/1 var(--font);color:var(--muted)}
+
+.seg{display:flex;border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);overflow:hidden;width:100%;margin-bottom:12px}
+.seg button{
+  flex:1;height:30px;padding:0 3px;border:0;border-right:var(--t-line) solid var(--onSurface);background:var(--surface);cursor:pointer;
+  font:var(--t-w-btn) var(--t-fs-btn)/1 var(--font);color:var(--onSurface);
+}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:var(--hovered)}
+.seg button[aria-pressed="true"]{background:var(--onSurface);color:var(--surface)}
+
+.switch{
+  display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 10px;margin-bottom:12px;
+  border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);background:var(--surface);cursor:pointer;
+  font:var(--t-w-btn) var(--t-fs-btn)/1 var(--font);color:var(--onSurface);text-align:left;
+}
+.switch:hover{background:var(--hovered)}
+.switch .tr{width:30px;height:16px;border-radius:999px;border:var(--t-line) solid var(--onSurface);position:relative;flex:0 0 auto;background:var(--surface)}
+.switch .tr::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--onSurface);transition:transform .14s}
+.switch[aria-pressed="true"] .tr{background:var(--onSurface)}
+.switch[aria-pressed="true"] .tr::after{transform:translateX(14px);background:var(--surface)}
+
+.btns{display:grid;gap:6px}
+.g1{grid-template-columns:1fr}
+.g2{grid-template-columns:1fr 1fr}
+.g4{grid-template-columns:1fr 1fr 1fr 1fr}
+.btns .btn{justify-content:center;padding:0 6px}
+.btns + .btns{margin-top:6px}
+
+.readout{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font:var(--t-w-label) var(--t-fs-label)/1.3 var(--font)}
+.readout b{font:var(--t-w-num) var(--t-fs-num)/1.3 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.readout b.neg{color:#C0392B}
+
+.klist{display:flex;flex-direction:column;gap:6px}
+.kempty{font:var(--t-w-label) var(--t-fs-label)/1.3 var(--font);color:var(--muted)}
+.krow{display:flex;align-items:center;gap:8px}
+.krow .u{font:var(--t-w-num) var(--t-fs-num)/1 var(--mono);flex:0 0 56px;font-variant-numeric:tabular-nums}
+.krow .c{font:var(--t-w-num) 11px/1 var(--mono);padding:3px 7px;border-radius:999px;border:var(--t-line) solid var(--outlineBright);color:var(--muted)}
+.krow .c.z{color:var(--onSurface);border-color:var(--onSurface)}
+.krow .stp{margin-left:auto;display:flex;align-items:center;gap:2px}
+.krow .stp button{width:26px;height:26px;border:var(--t-line) solid var(--onSurface);border-radius:var(--t-radius);background:var(--surface);cursor:pointer;color:var(--onSurface)}
+.krow .stp button:hover{background:var(--hovered)}
+.krow .stp span{font:var(--t-w-num) var(--t-fs-num)/1 var(--mono);width:24px;text-align:center}
+
+@media (max-width:1023px){
+  :root{--param-h:120px}
+  body{overflow:hidden}
+  #main{flex-direction:column;height:auto}
+  #canvasWrap{min-height:25vh}
+  #panel{width:100%;flex:0 0 auto;border-left:0;border-top:calc(var(--t-line) + .5px) solid var(--onSurface);max-height:42vh}
+  .btns .btn{height:40px}
+  .ctl > label{flex:0 0 52px}
+}
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body>
+
+<header id="bar"></header>
+
+<div id="main">
+  <div class="stage">
+    <div id="canvasWrap"><canvas id="view"></canvas></div>
+
+    <div class="viewbar chips" id="viewbar">
+      <button class="chip" type="button" data-v="poly"    aria-pressed="true">制御多角形</button>
+      <button class="chip" type="button" data-v="points"  aria-pressed="true">制御点</button>
+      <button class="chip" type="button" data-v="anchors" aria-pressed="false">アンカー</button>
+      <button class="chip" type="button" data-v="comb"    aria-pressed="false">曲率</button>
+      <button class="chip" type="button" data-v="onion"   aria-pressed="false">前後のフレーム</button>
+      <button class="chip" type="button" data-v="grid"    aria-pressed="true">グリッド</button>
+    </div>
+
+    <div class="param" id="param">
+      <div class="param-head">
+        <span class="jp">ノットと基底関数</span>
+        <span class="sp"></span>
+        <button class="chip" type="button" id="minBtn">基底関数</button>
+      </div>
+      <canvas id="paramCv"></canvas>
+    </div>
+
+    <div class="transport" id="transport">
+      <button id="play" type="button" aria-label="再生・停止">▶</button>
+      <canvas id="timeline"></canvas>
+      <span class="tnum" id="tnum">000/060</span>
+    </div>
+  </div>
+
+  <aside id="panel">
+    <div class="tabs" id="tabs">
+      <button type="button" data-s="curve" aria-pressed="true">曲線</button>
+      <button type="button" data-s="knot"  aria-pressed="false">ノット</button>
+      <button type="button" data-s="copy"  aria-pressed="false">複製</button>
+      <button type="button" data-s="warp"  aria-pressed="false">変形</button>
+      <button type="button" data-s="time"  aria-pressed="false">時間</button>
+      <button type="button" data-s="out"   aria-pressed="false">出力</button>
+    </div>
+
+    <section class="tabsec on" data-s="curve">
+      <p class="fieldlabel">点の種類</p>
+      <div class="seg" data-seg="ptMode">
+        <button type="button" data-v="ctrl" aria-pressed="true">制御点</button>
+        <button type="button" data-v="pass" aria-pressed="false">通過点</button>
+      </div>
+      <p class="fieldlabel">両端</p>
+      <div class="seg" data-seg="ends">
+        <button type="button" data-v="fix"    aria-pressed="false">固定</button>
+        <button type="button" data-v="even"   aria-pressed="false">均等</button>
+        <button type="button" data-v="closed" aria-pressed="true">閉じる</button>
+      </div>
+      <div data-ctl="deg"></div>
+      <p class="fieldlabel gap">グリッド（間隔は mm） <span id="gthin" style="font-weight:400;opacity:.7;font-size:11px"></span></p>
+      <button class="switch" type="button" data-sw="gsnap" aria-pressed="false" title="Shift を押しながらで一時的に解除"><span class="tr"></span><span class="tx">グリッドにスナップ</span></button>
+      <div data-ctl="gstep"></div>
+      <div class="btns g2">
+        <button class="btn" type="button" id="addPt" title="選んだ点の次に点を足す">点を追加</button>
+        <button class="btn" type="button" id="delPt" title="選んだ点を削除（Delete）">点を削除</button>
+      </div>
+      <p class="fieldlabel gap">プリセット</p>
+      <div class="btns g4">
+        <button class="btn" type="button" data-pre="wave">波</button>
+        <button class="btn" type="button" data-pre="circle">円</button>
+        <button class="btn" type="button" data-pre="angle">角</button>
+        <button class="btn primary" type="button" data-pre="random" title="点をランダムに置き直す（N）">ランダム</button>
+      </div>
+      <div class="btns g1">
+        <button class="btn" type="button" id="fitBtn">全体を表示</button>
+      </div>
+    </section>
+
+    <section class="tabsec" data-s="knot">
+      <div class="klist" id="klist"></div>
+      <div class="btns g2" style="margin-top:12px">
+        <button class="btn" type="button" id="knotEven">均等配置</button>
+        <button class="btn" type="button" id="knotRand">ランダム配置</button>
+      </div>
+    </section>
+
+    <section class="tabsec" data-s="copy">
+      <button class="switch" type="button" data-sw="mul" aria-pressed="false"><span class="tr"></span><span class="tx">複製を有効</span></button>
+      <p class="fieldlabel">配置</p>
+      <div class="seg" data-seg="layout">
+        <button type="button" data-v="rot"  aria-pressed="true">円形</button>
+        <button type="button" data-v="grid" aria-pressed="false">格子</button>
+        <button type="button" data-v="line" aria-pressed="false">直線</button>
+      </div>
+      <div data-ctl="count"></div>
+      <div data-ctl="rot"></div>
+      <div data-ctl="scale"></div>
+      <div data-ctl="dx"></div>
+      <div data-ctl="dy"></div>
+      <button class="switch" type="button" data-sw="mirror" aria-pressed="false"><span class="tr"></span><span class="tx">1つおきに反転</span></button>
+
+      <h2>立体</h2>
+      <button class="switch" type="button" data-sw="loft" aria-pressed="false" title="複製した曲線を制御網にして面を作る（立体表示中は余白をドラッグで回転）"><span class="tr"></span><span class="tx">複製から面を作成</span></button>
+      <div data-ctl="depth"></div>
+      <div data-ctl="yaw"></div>
+      <div data-ctl="pitch"></div>
+      <div data-ctl="iso"></div>
+    </section>
+
+    <section class="tabsec" data-s="warp">
+      <button class="switch" type="button" data-sw="warp" aria-pressed="false"><span class="tr"></span><span class="tx">変形を有効</span></button>
+      <div data-ctl="wamp"></div>
+      <div data-ctl="wfreq"></div>
+      <div data-ctl="wdrift"></div>
+    </section>
+
+    <section class="tabsec" data-s="time">
+      <button class="switch" type="button" data-sw="time" aria-pressed="false"><span class="tr"></span><span class="tx">時間を有効</span></button>
+      <div data-ctl="tamp"></div>
+      <div data-ctl="tphase"></div>
+      <div data-ctl="tratio"></div>
+      <div data-ctl="cycles"></div>
+      <h2>ノットの動き</h2>
+      <div data-ctl="kamp"></div>
+      <div data-ctl="kphase"></div>
+      <h2>再生</h2>
+      <div data-ctl="frames"></div>
+      <div data-ctl="speed"></div>
+      <div class="readout" id="tread" style="margin-top:12px"></div>
+    </section>
+
+    <section class="tabsec" data-s="out">
+      <div class="readout" id="readout"></div>
+    </section>
+  </aside>
+</div>
+
+<script src="_ext/000_kit/studio-kit.js?v=0.7.10"></script>
+<script>
+"use strict";
+/* ============================================================
+   1. B-spline core
+   partition of unity 4e-16 / de Boor == basis sum 0 /
+   Bezier conversion exact to 3e-13 for p<=3
+   ============================================================ */
+function buildCurve(P,degree,mode,interior){
+  let pts,U,p;
+  if(mode==='closed'){
+    const n=P.length;
+    p=Math.max(1,Math.min(degree,n-1));
+    pts=P.concat(P.slice(0,p));
+    const m=pts.length+p+1; U=[];
+    for(let i=0;i<m;i++) U.push(i/(m-1));
+  } else if(mode==='uniform'){
+    pts=P.slice();
+    p=Math.max(1,Math.min(degree,pts.length-1));
+    const m=pts.length+p+1; U=[];
+    for(let i=0;i<m;i++) U.push(i/(m-1));
+  } else {
+    pts=P.slice();
+    const N=pts.length;
+    p=Math.max(1,Math.min(degree,N-1));
+    const nInt=N-p-1;
+    let inner;
+    if(interior && interior.length===nInt) inner=interior.slice().sort((a,b)=>a-b);
+    else { inner=[]; for(let i=1;i<=nInt;i++) inner.push(i/(nInt+1)); }
+    U=[];
+    for(let i=0;i<=p;i++) U.push(0);
+    for(const v of inner) U.push(v);
+    for(let i=0;i<=p;i++) U.push(1);
+  }
+  const N=pts.length;
+  return {pts,U,p,N,u0:U[p],u1:U[N]};
+}
+function findSpan(c,u){
+  const {U,N,p}=c;
+  if(u>=U[N]){ let k=N-1; while(k>p&&U[k]===U[k+1])k--; return k; }
+  if(u<=U[p]){ let k=p; while(k<N-1&&U[k]===U[k+1])k++; return k; }
+  let lo=p,hi=N,mid=(lo+hi)>>1,g=0;
+  while((u<U[mid]||u>=U[mid+1])&&g++<200){
+    if(u<U[mid])hi=mid; else lo=mid;
+    const nx=(lo+hi)>>1;
+    if(nx===mid){ mid=lo; break; }
+    mid=nx;
+  }
+  return mid;
+}
+function basisFuns(c,span,u){
+  const {U,p}=c;
+  const N=new Array(p+1).fill(0),L=new Array(p+1).fill(0),R=new Array(p+1).fill(0);
+  N[0]=1;
+  for(let j=1;j<=p;j++){
+    L[j]=u-U[span+1-j]; R[j]=U[span+j]-u;
+    let s=0;
+    for(let r=0;r<j;r++){
+      const den=R[r+1]+L[j-r], t=den===0?0:N[r]/den;
+      N[r]=s+R[r+1]*t; s=L[j-r]*t;
+    }
+    N[j]=s;
+  }
+  return N;
+}
+function basisVector(c,u){
+  const out=new Array(c.N).fill(0);
+  const sp=findSpan(c,u), Nv=basisFuns(c,sp,u);
+  for(let j=0;j<=c.p;j++){ const i=sp-c.p+j; if(i>=0&&i<c.N) out[i]=Nv[j]; }
+  return out;
+}
+function evalCurve(c,u,forced){
+  const sp=forced===undefined?findSpan(c,u):forced;
+  const Nv=basisFuns(c,sp,u);
+  let x=0,y=0;
+  for(let j=0;j<=c.p;j++){ const P=c.pts[sp-c.p+j]; x+=Nv[j]*P.x; y+=Nv[j]*P.y; }
+  return {x,y};
+}
+function evalPt3(c,u){
+  const sp=findSpan(c,u), Nv=basisFuns(c,sp,u);
+  let x=0,y=0,z=0;
+  for(let j=0;j<=c.p;j++){ const P=c.pts[sp-c.p+j]; x+=Nv[j]*P.x; y+=Nv[j]*P.y; z+=Nv[j]*(P.z||0); }
+  return {x,y,z};
+}
+function derivCurve(c){
+  if(c.p<1) return null;
+  const {U,p,pts}=c,Q=[];
+  for(let i=0;i<pts.length-1;i++){
+    const den=U[i+p+1]-U[i+1], f=den===0?0:p/den;
+    Q.push({x:(pts[i+1].x-pts[i].x)*f, y:(pts[i+1].y-pts[i].y)*f});
+  }
+  const U2=U.slice(1,U.length-1), N2=Q.length;
+  return {pts:Q,U:U2,p:p-1,N:N2,u0:U2[p-1],u1:U2[N2]};
+}
+function curvatureAt(d1,d2,u){
+  if(!d1) return 0;
+  const a=evalCurve(d1,u), b=d2?evalCurve(d2,u):{x:0,y:0};
+  const s=Math.hypot(a.x,a.y);
+  if(s<1e-12) return 0;
+  return (a.x*b.y-a.y*b.x)/(s*s*s);
+}
+function spanBreaks(c){
+  const b=[];
+  for(let i=c.p;i<=c.N;i++){ const v=c.U[i]; if(!b.length||v>b[b.length-1]+1e-9) b.push(v); }
+  return b;
+}
+function toBeziers(c,d1){
+  const sub=c.p<=3?1:8, brk=spanBreaks(c), segs=[];
+  for(let s=0;s<brk.length-1;s++){
+    const a0=brk[s], b0=brk[s+1];
+    for(let k=0;k<sub;k++){
+      const a=a0+(b0-a0)*(k/sub), b=a0+(b0-a0)*((k+1)/sub), h=b-a, mid=(a+b)/2;
+      const sc=findSpan(c,mid), sd=findSpan(d1,mid);
+      const P0=evalCurve(c,a,sc), P1=evalCurve(c,b,sc);
+      const T0=evalCurve(d1,a,sd), T1=evalCurve(d1,b,sd);
+      segs.push({p0:P0,c1:{x:P0.x+T0.x*h/3,y:P0.y+T0.y*h/3},
+                       c2:{x:P1.x-T1.x*h/3,y:P1.y-T1.y*h/3},p1:P1});
+    }
+  }
+  return segs;
+}
+/* global interpolation (Piegl & Tiller A9.1). max error 2.5e-13 */
+function gauss(A,B){
+  const n=A.length, dim=B[0].length;
+  const M=A.map((r,i)=>r.slice().concat(B[i].slice()));
+  for(let c=0;c<n;c++){
+    let piv=c;
+    for(let r=c+1;r<n;r++) if(Math.abs(M[r][c])>Math.abs(M[piv][c])) piv=r;
+    if(Math.abs(M[piv][c])<1e-12) return null;
+    const tmp=M[c]; M[c]=M[piv]; M[piv]=tmp;
+    for(let r=0;r<n;r++){
+      if(r===c) continue;
+      const f=M[r][c]/M[c][c];
+      if(!f) continue;
+      for(let k=c;k<n+dim;k++) M[r][k]-=f*M[c][k];
+    }
+  }
+  const out=[];
+  for(let r=0;r<n;r++){ const row=[]; for(let d=0;d<dim;d++) row.push(M[r][n+d]/M[r][r]); out.push(row); }
+  return out;
+}
+function interpCurve(D,degree){
+  const K=D.length;
+  if(K<2) return null;
+  const p=Math.max(1,Math.min(degree,K-1));
+  const t=[0], d=[0];
+  for(let i=1;i<K;i++) d.push(Math.hypot(D[i].x-D[i-1].x, D[i].y-D[i-1].y));
+  const tot=d.reduce((a,b)=>a+b,0);
+  if(tot<1e-9){ for(let i=1;i<K;i++) t.push(i/(K-1)); }
+  else { let acc=0; for(let i=1;i<K;i++){ acc+=d[i]; t.push(acc/tot); } }
+  t[K-1]=1;
+  const U=[];
+  for(let i=0;i<=p;i++) U.push(0);
+  for(let j=1;j<=K-p-1;j++){ let s=0; for(let i=j;i<=j+p-1;i++) s+=t[i]; U.push(s/p); }
+  for(let i=0;i<=p;i++) U.push(1);
+  const tmpl={N:K,p,U,u0:0,u1:1};
+  const A=[],B=[];
+  for(let k=0;k<K;k++){ A.push(basisVector(tmpl,t[k])); B.push([D[k].x,D[k].y]); }
+  const Pc=gauss(A,B);
+  if(!Pc) return null;
+  return {pts:Pc.map(r=>({x:r[0],y:r[1]})), U, p, N:K, u0:0, u1:1, t};
+}
+
+/* ============================================================
+   2. state
+   ============================================================ */
+const W=1000, H=700, GAP=0.02;
+/* グリッドの間隔は mm で持つ。書き出しの SVG は座標1=1px で、Illustrator は 1px を 1pt（=0.3528mm）として開く。
+   だから 1mm = 72/25.4 = 2.8346 座標。吸着・描画は S.grid.step（座標単位）を読む */
+const MM_PX=72/25.4;
+const DV=['#0F9AA6','#E0662F','#9B59B6','#D6336C','#3B6FD4','#1E9E6E','#B89B00','#D9534F','#A9772E'];
+/* 作品の色（上部バーの色見本。初期色は規定パレット navy・§5 COLOR-00）。UIの色とは混ぜない */
+const ART={stroke:'#0044CC', bg:'#FFFFFF'};
+const COARSE=matchMedia('(pointer:coarse)').matches;
+
+const S={
+  P:[], ptMode:'ctrl', ends:'closed', deg:3, interior:null,
+  mul:{on:false, layout:'rot', count:8, rot:0, scale:1, dx:60, dy:0, mirror:false},
+  loft:{on:false, depth:60, yaw:-28, pitch:34, iso:10},
+  warp:{on:false, wamp:40, wfreq:1.2, wdrift:0.35},
+  time:{on:false, tamp:60, tphase:0.14, tratio:0.4, cycles:1, kamp:0.1, kphase:0.25,
+        frames:60, speed:1, f:0, playing:true},
+  show:{poly:true, points:true, anchors:false, comb:false, onion:false, grid:true},
+  grid:{mm:1, snap:false, get step(){ return this.mm*MM_PX; }},
+  basisOpen:true, sel:null,
+  view:{s:1, ox:0, oy:0}
+};
+/* 取り消し・やり直し（§7 ⌘Z / ⇧⌘Z。Studio.history＝変更後の状態を積む） */
+const hist=Studio.history(100);
+let histTimer=null;
+function geomState(){ return {P:S.P.map(p=>({x:p.x,y:p.y})), deg:S.deg, ends:S.ends, interior:S.interior, ptMode:S.ptMode}; }
+function commit(){ clearTimeout(histTimer); histTimer=null; hist.push(geomState()); }
+function commitSoon(){ clearTimeout(histTimer); histTimer=setTimeout(commit,300); }
+function applyGeom(s){
+  Object.assign(S,{P:s.P, deg:s.deg, ends:s.ends, interior:s.interior, ptMode:s.ptMode});
+  S.sel=null; syncUI(); build(); render();
+}
+function undo(){
+  if(histTimer) commit();
+  const s=hist.undo();
+  if(!s){ toast('元に戻せる操作がありません'); return; }
+  applyGeom(s);
+}
+function redo(){
+  if(histTimer) commit();
+  const s=hist.redo();
+  if(!s){ toast('やり直せる操作がありません'); return; }
+  applyGeom(s);
+}
+
+/* ============================================================
+   3. control definitions — every slider gets a number input
+   ============================================================ */
+const CTL={
+  deg   :{path:'deg',        label:'次数',  min:1,max:5,   step:1,    unit:'',  dec:0, def:3},
+  gstep :{path:'grid.mm',    label:'間隔',  min:0.5,max:20, step:0.5, unit:'mm',dec:1, def:1, stops:[0.5,1,2,5,10], tol:0.15},
+  count :{path:'mul.count',  label:'個数',  min:1,max:64,  step:1,    unit:'個',dec:0, def:8},
+  rot   :{path:'mul.rot',    label:'回転',  min:-180,max:180,step:1,  unit:'°', dec:0, def:0,  stops:[-180,-90,0,90,180], tol:4},
+  scale :{path:'mul.scale',  label:'倍率',  min:0.5,max:1.5,step:0.005,unit:'', dec:2, def:1,  stops:[0.5,0.75,1,1.25,1.5], tol:0.012},
+  dx    :{path:'mul.dx',     label:'間隔X', min:-200,max:200,step:1,  unit:'px',dec:0, def:60, stops:[0], tol:3},
+  dy    :{path:'mul.dy',     label:'間隔Y', min:-200,max:200,step:1,  unit:'px',dec:0, def:0,  stops:[0], tol:3},
+  depth :{path:'loft.depth', label:'奥行き',min:0,max:160, step:1,    unit:'px',dec:0, def:60, stops:[0], tol:3},
+  yaw   :{path:'loft.yaw',   label:'回転',  min:-180,max:180,step:1,  unit:'°', dec:0, def:-28,stops:[-180,-90,0,90,180], tol:4},
+  pitch :{path:'loft.pitch', label:'俯角',  min:0,max:90,  step:1,    unit:'°', dec:0, def:34, stops:[0,30,45,60,90], tol:3},
+  iso   :{path:'loft.iso',   label:'等値線',min:2,max:24,  step:1,    unit:'本',dec:0, def:10},
+  wamp  :{path:'warp.wamp',  label:'強さ',  min:0,max:160, step:1,    unit:'px',dec:0, def:40, stops:[0], tol:3},
+  wfreq :{path:'warp.wfreq', label:'周期',  min:0.2,max:4, step:0.05, unit:'',  dec:2, def:1.2,stops:[1,2,3], tol:0.08},
+  wdrift:{path:'warp.wdrift',label:'位相',min:0,max:2,   step:0.02, unit:'',  dec:2, def:0.35,stops:[0,0.5,1], tol:0.04},
+  tamp  :{path:'time.tamp',  label:'振幅',  min:0,max:200, step:1,    unit:'px',dec:0, def:60, stops:[0], tol:3},
+  tphase:{path:'time.tphase',label:'位相差',min:0,max:1,   step:0.005,unit:'',  dec:2, def:0.14,stops:[0,0.25,0.5,0.75,1], tol:0.012},
+  tratio:{path:'time.tratio',label:'縦横比',min:-1,max:1,  step:0.02, unit:'',  dec:2, def:0.4,stops:[-1,0,1], tol:0.04},
+  cycles:{path:'time.cycles',label:'周回数',min:1,max:4,   step:1,    unit:'',  dec:0, def:1},
+  kamp  :{path:'time.kamp',  label:'揺れ幅',min:0,max:0.5, step:0.005,unit:'',  dec:2, def:0.1,stops:[0], tol:0.012},
+  kphase:{path:'time.kphase',label:'位相差',min:0,max:1,   step:0.01, unit:'',  dec:2, def:0.25,stops:[0,0.25,0.5,0.75,1], tol:0.02},
+  frames:{path:'time.frames',label:'枚数',  min:8,max:120, step:1,    unit:'枚',dec:0, def:60, stops:[12,24,30,60,120], tol:2},
+  speed :{path:'time.speed', label:'速さ',  min:0.1,max:3, step:0.05, unit:'×', dec:2, def:1,  stops:[0.5,1,2], tol:0.06}
+};
+const get=p=>p.split('.').reduce((o,k)=>o[k],S);
+const set=(p,v)=>{ const k=p.split('.'); const o=k.slice(0,-1).reduce((a,b)=>a[b],S); o[k[k.length-1]]=v; };
+function snapTo(v,stops,tol){
+  if(!stops) return v;
+  for(const s of stops) if(Math.abs(v-s)<=tol) return s;
+  return v;
+}
+/* 座標をグリッドに吸着する。snapTo（スライダーの値用）とも
+   snap_（元に戻す用のスナップショット）とも別物。 */
+function snapXY(w,off){
+  if(!S.grid.snap||off) return w;
+  const g=S.grid.step;
+  return {x:Math.round(w.x/g)*g, y:Math.round(w.y/g)*g};
+}
+const CTLNODE={};
+function buildControls(){
+  document.querySelectorAll('[data-ctl]').forEach(host=>{
+    const key=host.dataset.ctl, d=CTL[key];
+    host.className='ctl';
+    host.innerHTML=
+      `<label for="r_${key}">${d.label}</label>`+
+      `<input type="range" id="r_${key}" min="${d.min}" max="${d.max}" step="${d.step}" value="${get(d.path)}">`+
+      `<input type="number" class="num" id="n_${key}" min="${d.min}" max="${d.max}" step="${d.step}" value="${(+get(d.path)).toFixed(d.dec)}">`+
+      `<span class="unit">${d.unit}</span>`;
+    const r=host.querySelector('input[type=range]'), n=host.querySelector('.num');
+    CTLNODE[key]={r,n,d};
+    const push=(v,fromRange,shift)=>{
+      let x=Math.max(d.min,Math.min(d.max,v));
+      if(fromRange && !shift) x=snapTo(x,d.stops,d.tol);
+      x=+x.toFixed(d.dec+2);
+      set(d.path,x);
+      r.value=x; n.value=x.toFixed(d.dec);
+      if(d.path==='deg') commitSoon();
+      build(); render();
+    };
+    r.addEventListener('input',e=>push(+r.value,true,e.shiftKey));
+    r.addEventListener('keydown',e=>{
+      if(e.shiftKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){
+        e.preventDefault();
+        push(+r.value+(e.key==='ArrowRight'?1:-1)*d.step*10,false,true);
+      }
+    });
+    n.addEventListener('change',()=>{ const v=parseFloat(n.value); if(isFinite(v)) push(v,false,false); else n.value=(+get(d.path)).toFixed(d.dec); });
+    host.querySelector('label').addEventListener('dblclick',()=>{ push(d.def,false,false); toast(d.label+' を既定値に戻しました'); });
+  });
+}
+function syncCtl(){
+  for(const k in CTLNODE){
+    const {r,n,d}=CTLNODE[k], v=+get(d.path);
+    r.value=v; n.value=v.toFixed(d.dec);
+  }
+}
+
+/* ============================================================
+   4. pipeline
+   base points -> (time) -> seed curve -> (copies) -> (warp) -> (loft)
+   ============================================================ */
+const CIRCLE_R=240;   // 最初の形（INIT-01）: 閉じた円。曲線の直径が版面の短辺の約66%
+function presetPoints(kind){
+  const P=[];
+  if(kind==='wave'){ for(let i=0;i<9;i++) P.push({x:90+i*(W-180)/8, y:H/2+Math.sin(i*0.9)*170}); }
+  else if(kind==='circle'){ for(let i=0;i<7;i++){ const a=i/7*Math.PI*2-Math.PI/2; P.push({x:W/2+Math.cos(a)*CIRCLE_R, y:H/2+Math.sin(a)*CIRCLE_R}); } }
+  else if(kind==='angle'){ return [{x:110,y:560},{x:200,y:180},{x:360,y:180},{x:500,y:520},{x:650,y:520},{x:790,y:180},{x:900,y:520}]; }
+  else { const n=S.P.length||8; for(let i=0;i<n;i++) P.push({x:80+Math.random()*(W-160), y:80+Math.random()*(H-160)}); }
+  return P;
+}
+function endsMode(){ return S.ends==='fix'?'clamped':S.ends==='even'?'uniform':'closed'; }
+function pointsAt(t){
+  if(!S.time.on || S.time.tamp===0) return S.P;
+  const T=S.time;
+  return S.P.map((p,i)=>{
+    const a=2*Math.PI*(T.cycles*t + i*T.tphase);
+    return {x:p.x+Math.cos(a)*T.tamp, y:p.y+Math.sin(a)*T.tamp*T.tratio};
+  });
+}
+function evenInterior(n,p){ const k=n-p-1,o=[]; for(let i=1;i<=k;i++) o.push(i/(k+1)); return o; }
+function interiorAt(t,n){
+  const p=Math.max(1,Math.min(S.deg,n-1));
+  const m=n-p-1;
+  if(m<=0) return [];
+  let base=(S.interior&&S.interior.length===m)?S.interior.slice():evenInterior(n,p);
+  if(!S.time.on || S.time.kamp===0) return base;
+  let v=base.map((b,j)=>b+Math.sin(2*Math.PI*(t+j*S.time.kphase))*S.time.kamp);
+  v.sort((a,b)=>a-b);
+  for(let i=0;i<m;i++) v[i]=Math.max(GAP*(i+1), Math.min(1-GAP*(m-i), v[i]));
+  for(let i=1;i<m;i++) v[i]=Math.max(v[i], v[i-1]+GAP);
+  for(let i=m-2;i>=0;i--) v[i]=Math.min(v[i], v[i+1]-GAP);
+  for(let i=0;i<m;i++) v[i]=Math.max(GAP, Math.min(1-GAP, v[i]));
+  return v;
+}
+function seedAt(t){
+  let pts=pointsAt(t);
+  if(S.ptMode==='pass'){
+    const D = S.ends==='closed' ? pts.concat([pts[0]]) : pts;
+    const c = interpCurve(D, S.deg);
+    if(c) return c;
+  }
+  const inter = S.ends==='fix' ? interiorAt(t, pts.length) : null;
+  return buildCurve(pts, S.deg, endsMode(), inter);
+}
+function xform(pts,k,n){
+  const M=S.mul, Wp=S.warp;
+  let a=0,sx=1,sy=1,tx=0,ty=0,mir=false;
+  if(M.on && n>1){
+    const f=n>1?k/(n-1):0;
+    if(M.layout==='rot'){
+      a=k/n*Math.PI*2 + M.rot*Math.PI/180*f;
+      sx=sy=Math.pow(M.scale,k);
+      mir=M.mirror&&(k%2===1);
+    } else if(M.layout==='grid'){
+      const cols=Math.max(1,Math.round(Math.sqrt(n)));
+      const cx=k%cols, cy=Math.floor(k/cols);
+      tx=(cx-(cols-1)/2)*M.dx*2;
+      ty=(cy-(Math.ceil(n/cols)-1)/2)*M.dy*2;
+      a=M.rot*Math.PI/180*f; sx=sy=Math.pow(M.scale,k);
+      mir=M.mirror&&(cx%2===1);
+    } else {
+      const c=k-(n-1)/2;
+      tx=M.dx*c; ty=M.dy*c;
+      a=M.rot*Math.PI/180*c/Math.max(1,n-1)*2;
+      sx=sy=Math.pow(M.scale,c);
+      mir=M.mirror&&(k%2===1);
+    }
+  }
+  const ca=Math.cos(a), sa=Math.sin(a), cx=W/2, cy=H/2;
+  return pts.map((p,i)=>{
+    let x=p.x-cx, y=p.y-cy;
+    if(mir) x=-x;
+    x*=sx; y*=sy;
+    let rx=x*ca-y*sa, ry=x*sa+y*ca;
+    rx+=tx; ry+=ty;
+    if(Wp.on && Wp.wamp){
+      const fq=Wp.wfreq/300, dr=k*Wp.wdrift;
+      rx+=Math.sin(ry*fq + dr*2.1 + i*0.3)*Wp.wamp;
+      ry+=Math.cos(rx*fq*1.13 - dr*1.7 + i*0.21)*Wp.wamp;
+    }
+    return {x:rx+cx, y:ry+cy};
+  });
+}
+function familyAt(t){
+  const seed=seedAt(t);
+  const n=S.mul.on?S.mul.count:1;
+  const out=[];
+  for(let k=0;k<n;k++){
+    const Q=xform(seed.pts,k,n);
+    out.push({pts:Q, U:seed.U, p:seed.p, N:seed.N, u0:seed.u0, u1:seed.u1});
+  }
+  return out;
+}
+function axisKnots(n,deg){
+  const p=Math.max(1,Math.min(deg,n-1)), k=n-p-1, U=[];
+  for(let i=0;i<=p;i++) U.push(0);
+  for(let i=1;i<=k;i++) U.push(i/(k+1));
+  for(let i=0;i<=p;i++) U.push(1);
+  return {N:n,p,U,u0:0,u1:1};
+}
+/* ---- current frame ---- */
+let FAM=null, SEED=null, BEZ=null, LOFT=null;
+function build(){
+  const need=S.ends==='closed'?3:2;
+  if(S.P.length<need) S.P=presetPoints('wave');
+  const t=S.time.on?S.time.f/S.time.frames:0;
+  SEED=seedAt(t);
+  FAM=familyAt(t);
+  BEZ=FAM.map(c=>toBeziers(c,derivCurve(c)));
+  LOFT = (S.loft.on && FAM.length>=2) ? buildLoft() : null;
+}
+function buildLoft(){
+  const n=FAM.length, pv=Math.max(1,Math.min(3,n-1));
+  const AV=axisKnots(n,pv);
+  const AU={N:FAM[0].N, p:FAM[0].p, U:FAM[0].U, u0:FAM[0].u0, u1:FAM[0].u1};
+  const net=FAM.map((f,k)=>f.pts.map(p=>({x:p.x,y:p.y,z:(k-(n-1)/2)*S.loft.depth})));
+  const a=S.loft.yaw*Math.PI/180, b=S.loft.pitch*Math.PI/180;
+  const PR={ca:Math.cos(a),sa:Math.sin(a),cb:Math.cos(b),sb:Math.sin(b)};
+  const prj=P=>{ const rx=P.x*PR.ca-P.y*PR.sa, ry=P.x*PR.sa+P.y*PR.ca;
+                 return {x:rx, y:ry*PR.sb-P.z*PR.cb}; };
+  const iso=S.loft.iso, curves=[];
+  for(let s=0;s<=iso;s++){
+    const v=s/iso, bv=basisVector(AV,v), Q=[];
+    for(let i=0;i<AU.N;i++){
+      let x=0,y=0,z=0;
+      for(let k=0;k<n;k++){ const w=bv[k]; if(!w) continue;
+        const P=net[k][i]; x+=w*P.x; y+=w*P.y; z+=w*P.z; }
+      Q.push(prj({x,y,z}));
+    }
+    const c={pts:Q,U:AU.U,p:AU.p,N:AU.N,u0:AU.u0,u1:AU.u1};
+    curves.push({segs:toBeziers(c,derivCurve(c)), dir:'u'});
+  }
+  for(let s=0;s<=iso;s++){
+    const u=AU.u0+(AU.u1-AU.u0)*s/iso, bu=basisVector(AU,u), Q=[];
+    for(let k=0;k<n;k++){
+      let x=0,y=0,z=0;
+      for(let i=0;i<AU.N;i++){ const w=bu[i]; if(!w) continue;
+        const P=net[k][i]; x+=w*P.x; y+=w*P.y; z+=w*P.z; }
+      Q.push(prj({x,y,z}));
+    }
+    const c={pts:Q,U:AV.U,p:AV.p,N:AV.N,u0:AV.u0,u1:AV.u1};
+    curves.push({segs:toBeziers(c,derivCurve(c)), dir:'v'});
+  }
+  return {curves, prj, net};
+}
+function anchorAudit(){
+  if(!S.time.on) return {mn:BEZ[0].length+1, mx:BEZ[0].length+1, ok:true};
+  let mn=1e9,mx=-1;
+  const keepF=S.time.f;
+  for(let f=0;f<S.time.frames;f++){
+    const t=f/S.time.frames;
+    const c=seedAt(t);
+    const nseg=toBeziers(c,derivCurve(c)).length;
+    mn=Math.min(mn,nseg); mx=Math.max(mx,nseg);
+  }
+  S.time.f=keepF;
+  return {mn:mn+1, mx:mx+1, ok:mn===mx};
+}
+
+/* ============================================================
+   5. render
+   ============================================================ */
+const cv=document.getElementById('view'), ctx=cv.getContext('2d');
+const pv=document.getElementById('paramCv'), pctx=pv.getContext('2d');
+const tl=document.getElementById('timeline'), tctx=tl.getContext('2d');
+let VW=0,VH=0,PW=0,PH=0,TW=0,TH=0;
+function css(v){ return getComputedStyle(document.body).getPropertyValue(v).trim(); }
+/* 版面の上に重ねる補助表示（グリッド・多角形・ハンドル）は、背景の明るさに合わせて黒か白の半透明にする */
+function hexLum(h){ h=/^#[0-9a-f]{6}$/i.test(h)?h:'#ffffff'; const n=parseInt(h.slice(1),16); return (0.299*(n>>16&255)+0.587*(n>>8&255)+0.114*(n&255))/255; }
+const ov=a=>(ART.bg!=='none'&&hexLum(ART.bg)<0.5)?`rgba(255,255,255,${a})`:`rgba(0,0,0,${a})`;
+const K=a=>`rgba(0,0,0,${a})`;
+function fitCanvas(c,x){
+  const dpr=Math.min(window.devicePixelRatio||1,2.5), r=c.getBoundingClientRect();
+  const w=Math.max(1,Math.round(r.width)), h=Math.max(1,Math.round(r.height));
+  c.width=w*dpr; c.height=h*dpr; x.setTransform(dpr,0,0,dpr,0,0);
+  return {w,h};
+}
+function resize(){
+  let d=fitCanvas(cv,ctx); VW=d.w; VH=d.h;
+  d=fitCanvas(pv,pctx); PW=d.w; PH=d.h;
+  d=fitCanvas(tl,tctx); TW=d.w; TH=d.h;
+  fitView(false); render();
+}
+const toS=p=>({x:p.x*S.view.s+S.view.ox, y:p.y*S.view.s+S.view.oy});
+const toW=(x,y)=>({x:(x-S.view.ox)/S.view.s, y:(y-S.view.oy)/S.view.s});
+function fitView(re){
+  let minx=0,maxx=W,miny=0,maxy=H;
+  if(LOFT){
+    minx=1e9;maxx=-1e9;miny=1e9;maxy=-1e9;
+    LOFT.curves.forEach(c=>c.segs.forEach(s=>[s.p0,s.p1].forEach(p=>{
+      minx=Math.min(minx,p.x);maxx=Math.max(maxx,p.x);
+      miny=Math.min(miny,p.y);maxy=Math.max(maxy,p.y);})));
+    if(minx>maxx){minx=0;maxx=W;miny=0;maxy=H;}
+  }
+  const bw=Math.max(1,maxx-minx), bh=Math.max(1,maxy-miny), pad=30;
+  S.view.s=Math.min((VW-pad*2)/bw,(VH-pad*2)/bh);
+  S.view.ox=(VW-bw*S.view.s)/2-minx*S.view.s;
+  S.view.oy=(VH-bh*S.view.s)/2-miny*S.view.s;
+  if(re!==false) render();
+}
+function strokeBez(x,segs,close){
+  if(!segs.length) return;
+  let prev=null;
+  x.beginPath();
+  segs.forEach((sg,i)=>{
+    const a=toS(sg.p0),b=toS(sg.c1),c=toS(sg.c2),d=toS(sg.p1);
+    if(i===0||!prev||Math.hypot(a.x-prev.x,a.y-prev.y)>0.5) x.moveTo(a.x,a.y);
+    x.bezierCurveTo(b.x,b.y,c.x,c.y,d.x,d.y);
+    prev=d;
+  });
+  if(close) x.closePath();
+  x.stroke();
+}
+function render(){
+  const A=ART.stroke==='none'?null:ART.stroke;   // 線の色（上部バーの色見本）
+  ctx.clearRect(0,0,VW,VH);
+
+  /* 背景は版面の中だけに塗る（立体は版面を持たないので全面） */
+  if(!LOFT){
+    const o0=toS({x:0,y:0}), e0=toS({x:W,y:H});
+    if(ART.bg!=='none'){ ctx.fillStyle=ART.bg; ctx.fillRect(o0.x,o0.y,e0.x-o0.x,e0.y-o0.y); }
+  } else if(ART.bg!=='none'){ ctx.fillStyle=ART.bg; ctx.fillRect(0,0,VW,VH); }
+
+  if(!LOFT){
+    const o=toS({x:0,y:0}), e=toS({x:W,y:H});
+    const g=S.grid.step;
+    if(S.show.grid){
+    ctx.save();
+    /* スナップ中は少し濃くする。乗せる先が見えていないと吸着が読めないため */
+    ctx.strokeStyle=S.grid.snap?ov(0.16):ov(0.07); ctx.lineWidth=1;
+    /* 画面上の間隔が 8px 未満なら k 本に 1 本だけ描く（吸着は本来の間隔のまま） */
+    let gk=1; for(const c of [1,2,5,10,20,50,100,200,500,1000]){ gk=c; if(c*g*S.view.s>=8) break; }
+    const gt=document.getElementById('gthin');
+    if(gt) gt.textContent=gk>1?`表示は ${+(S.grid.mm*gk).toFixed(2)} mm おき`:'';
+    {
+      const gg=g*gk;
+      ctx.beginPath();
+      for(let x=0;x<=W;x+=gg){ const sx=Math.round(o.x+x*S.view.s)+0.5; ctx.moveTo(sx,o.y); ctx.lineTo(sx,e.y); }
+      for(let y=0;y<=H;y+=gg){ const sy=Math.round(o.y+y*S.view.s)+0.5; ctx.moveTo(o.x,sy); ctx.lineTo(e.x,sy); }
+      ctx.stroke();
+    }
+    ctx.restore();
+    }
+    ctx.strokeStyle=K(0.22); ctx.lineWidth=1;   // 版面の枠（書き出しには入れない）
+    ctx.strokeRect(Math.round(o.x)+0.5,Math.round(o.y)+0.5,Math.round(e.x-o.x),Math.round(e.y-o.y));
+  }
+
+  if(LOFT){
+    ctx.save();
+    ctx.lineWidth=1.2; ctx.lineJoin='round';
+    if(A) LOFT.curves.forEach(c=>{
+      ctx.strokeStyle=A;
+      ctx.globalAlpha=c.dir==='u'?0.9:0.42;
+      strokeBez(ctx,c.segs,false);
+    });
+    ctx.restore();
+    drawParam(); drawTimeline(); readout();
+    return;
+  }
+
+  // onion skin
+  if(A && S.show.onion && S.time.on){
+    const keep=S.time.f;
+    ctx.save(); ctx.strokeStyle=A; ctx.lineWidth=1;
+    const step=Math.max(1,Math.round(S.time.frames/28));
+    for(let k=1;k<=6;k++){
+      const f=(keep-k*step+S.time.frames*4)%S.time.frames;
+      const c=seedAt(f/S.time.frames);
+      const fam=[]; const n=S.mul.on?S.mul.count:1;
+      for(let j=0;j<Math.min(n,8);j++){
+        const q={pts:xform(c.pts,j,n),U:c.U,p:c.p,N:c.N,u0:c.u0,u1:c.u1};
+        fam.push(toBeziers(q,derivCurve(q)));
+      }
+      ctx.globalAlpha=0.14*(1-k/7);
+      fam.forEach(sg=>strokeBez(ctx,sg,false));
+    }
+    ctx.restore();
+    S.time.f=keep;
+  }
+
+  // curvature comb (seed only)
+  if(S.show.comb){
+    const d1=derivCurve(SEED), d2=d1&&d1.p>=1?derivCurve(d1):null;
+    if(d1&&d2){
+      let kmax=1e-9; const N=220, ks=[],ps=[],ns=[];
+      for(let i=0;i<=N;i++){
+        const u=SEED.u0+(SEED.u1-SEED.u0)*i/N;
+        const k=curvatureAt(d1,d2,u), dd=evalCurve(d1,u), sp=Math.hypot(dd.x,dd.y)||1;
+        ks.push(k); ps.push(evalCurve(SEED,u)); ns.push({x:-dd.y/sp,y:dd.x/sp});
+        kmax=Math.max(kmax,Math.abs(k));
+      }
+      const sc=90/kmax;
+      ctx.save(); ctx.strokeStyle=ov(0.30); ctx.lineWidth=1;
+      ctx.beginPath();
+      for(let i=0;i<=N;i+=2){
+        const a=toS(ps[i]);
+        const b=toS({x:ps[i].x+ns[i].x*ks[i]*sc, y:ps[i].y+ns[i].y*ks[i]*sc});
+        ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+      }
+      ctx.stroke(); ctx.restore();
+    }
+  }
+
+  // family
+  ctx.save();
+  ctx.lineWidth=2.2; ctx.lineJoin='round'; ctx.lineCap='round';
+  if(A) BEZ.forEach((segs,k)=>{
+    const n=BEZ.length;
+    ctx.strokeStyle=A;
+    ctx.globalAlpha=n>1?(0.30+0.70*(1-k/(n-1))):1;
+    ctx.lineWidth=k===0?2.4:1.6;
+    strokeBez(ctx,segs,false);
+  });
+  ctx.restore();
+
+  // span breaks on the seed
+  ctx.save(); ctx.fillStyle=ov(0.55);
+  const brk=spanBreaks(SEED);
+  for(let i=1;i<brk.length-1;i++){
+    const q=toS(evalCurve(SEED,brk[i]));
+    ctx.beginPath(); ctx.arc(q.x,q.y,2.2,0,6.2832); ctx.fill();
+  }
+  ctx.restore();
+
+  if(S.show.anchors){
+    ctx.save();
+    ctx.strokeStyle=ov(0.4); ctx.lineWidth=1;
+    ctx.beginPath();
+    BEZ[0].forEach(sg=>{
+      const a=toS(sg.p0),b=toS(sg.c1),c=toS(sg.c2),d=toS(sg.p1);
+      ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.moveTo(d.x,d.y); ctx.lineTo(c.x,c.y);
+    });
+    ctx.stroke();
+    ctx.fillStyle=ov(0.9);
+    BEZ[0].forEach((sg,i)=>{
+      const a=toS(sg.p0); ctx.fillRect(a.x-2.5,a.y-2.5,5,5);
+      if(i===BEZ[0].length-1){ const d=toS(sg.p1); ctx.fillRect(d.x-2.5,d.y-2.5,5,5); }
+    });
+    ctx.restore();
+  }
+
+  if(S.show.poly){
+    ctx.save();
+    ctx.strokeStyle=ov(0.35); ctx.lineWidth=1; ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    const L=S.ends==='closed'?SEED.pts.slice(0,S.P.length).concat([SEED.pts[0]]):SEED.pts;   // 閉じた曲線は内部の折り返し点を含めず、最初の点へ戻す
+    L.forEach((p,i)=>{ const q=toS(p); i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y); });
+    ctx.stroke(); ctx.restore();
+  }
+
+  if(S.show.points){
+    const anim=pointsAt(S.time.on?S.time.f/S.time.frames:0);
+    const bv=basisVector(SEED, SEED.u0+(SEED.u1-SEED.u0)*0.5);
+    const R=COARSE?9:7;
+    S.P.forEach((p,i)=>{
+      const base=toS(p), cur=toS(anim[i]);
+      const col=DV[i%DV.length];
+      ctx.save();
+      if(S.time.on && S.time.tamp>0){
+        ctx.strokeStyle=ov(0.25); ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(base.x,base.y); ctx.lineTo(cur.x,cur.y); ctx.stroke();
+        ctx.fillStyle=col; ctx.globalAlpha=0.9;
+        ctx.beginPath(); ctx.arc(cur.x,cur.y,4,0,6.2832); ctx.fill();
+        ctx.globalAlpha=1;
+      }
+      ctx.fillStyle=i===S.sel?col:css('--t-paper');
+      ctx.strokeStyle=col; ctx.lineWidth=i===S.sel?2.4:1.6;
+      ctx.beginPath(); ctx.arc(base.x,base.y,R,0,6.2832); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    });
+  }
+  drawParam(); drawTimeline(); readout();
+}
+
+/* ---- parameter strip: knot track + basis graph ---- */
+const KH=42, PAD=22;
+const uToX=u=>PAD+(u-SEED.u0)/(SEED.u1-SEED.u0)*(PW-PAD*2);
+const xToU=x=>SEED.u0+(x-PAD)/(PW-PAD*2)*(SEED.u1-SEED.u0);
+function knotGroups(){
+  const g=[], eps=1e-6;
+  for(let i=SEED.p;i<=SEED.N;i++){
+    const v=SEED.U[i];
+    if(v<SEED.u0-eps||v>SEED.u1+eps) continue;
+    const last=g[g.length-1];
+    if(last&&Math.abs(last.u-v)<eps){ last.m++; }
+    else g.push({u:v,m:1});
+  }
+  if(S.ends==='fix'&&g.length>1){ g[0].m=SEED.p+1; g[g.length-1].m=SEED.p+1; }
+  return g;
+}
+function drawParam(){
+  const A=css('--t-ink');
+  pctx.clearRect(0,0,PW,PH);
+  const gs=knotGroups();
+  const open=S.basisOpen && PH>KH+20;
+  pctx.strokeStyle=K(0.14); pctx.lineWidth=1;
+  pctx.beginPath(); pctx.moveTo(PAD,KH-0.5); pctx.lineTo(PW-PAD,KH-0.5); pctx.stroke();
+
+  if(open){
+    const top=KH+8, bot=PH-14, hgt=bot-top;
+    pctx.save();
+    pctx.strokeStyle=K(0.07); pctx.lineWidth=1;
+    pctx.beginPath();
+    gs.forEach(g=>{ const x=Math.round(uToX(g.u))+0.5; pctx.moveTo(x,top); pctx.lineTo(x,bot); });
+    pctx.stroke();
+    pctx.strokeStyle=K(0.12);
+    pctx.beginPath(); pctx.moveTo(PAD,bot+0.5); pctx.lineTo(PW-PAD,bot+0.5); pctx.stroke();
+    pctx.restore();
+
+    const NS=Math.max(100,Math.min(500,Math.round(PW)));
+    const cur=[]; for(let i=0;i<SEED.N;i++) cur.push([]);
+    for(let s=0;s<=NS;s++){
+      const u=SEED.u0+(SEED.u1-SEED.u0)*s/NS;
+      const bv=basisVector(SEED,u), x=uToX(u);
+      for(let i=0;i<SEED.N;i++) cur[i].push({x,y:bot-bv[i]*hgt});
+    }
+    pctx.save(); pctx.lineWidth=1.5; pctx.lineJoin='round';
+    for(let i=0;i<SEED.N;i++){
+      const src=S.ends==='closed'?(i%S.P.length):i;
+      pctx.strokeStyle=DV[src%DV.length];
+      pctx.globalAlpha=(S.sel===null||S.sel===src)?0.9:0.26;
+      pctx.beginPath();
+      cur[i].forEach((q,k)=>{ k?pctx.lineTo(q.x,q.y):pctx.moveTo(q.x,q.y); });
+      pctx.stroke();
+    }
+    pctx.restore();
+  }
+
+  pctx.save();
+  pctx.font='10px ui-monospace,SFMono-Regular,Menlo,monospace'; pctx.textAlign='center';
+  gs.forEach((g,gi)=>{
+    const x=uToX(g.u), edge=(gi===0||gi===gs.length-1);
+    const editable=(S.ends==='fix'&&S.ptMode==='ctrl'&&!edge);
+    for(let k=0;k<Math.min(g.m,6);k++){
+      pctx.beginPath(); pctx.arc(x,22-k*4.2,5.2,0,6.2832);
+      pctx.fillStyle=editable?A:K(0.3);
+      pctx.globalAlpha=editable?(1-k*0.12):1;
+      pctx.fill(); pctx.globalAlpha=1;
+      pctx.strokeStyle=css('--t-paper'); pctx.lineWidth=1.2; pctx.stroke();
+    }
+    if(!edge){
+      const c=SEED.p-g.m;
+      pctx.fillStyle=c<=0?css('--t-ink'):css('--t-muted');
+      pctx.fillText(c<0?'−':('C'+c), x, KH-6);
+    }
+  });
+  pctx.restore();
+}
+function drawTimeline(){
+  document.getElementById('transport').classList.toggle('on',S.time.on);
+  if(!S.time.on) return;
+  /* 再生バーは表示した直後に大きさが決まる。canvas の大きさが違えば合わせ直す（空白の帯になるのを防ぐ） */
+  const tr=tl.getBoundingClientRect();
+  if(Math.round(tr.width)!==TW||Math.round(tr.height)!==TH){ const d=fitCanvas(tl,tctx); TW=d.w; TH=d.h; }
+  if(!TW) return;
+  tctx.clearRect(0,0,TW,TH);
+  const pad=6,w=TW-pad*2;
+  const n=S.P.length, p=Math.max(1,Math.min(S.deg,n-1)), m=Math.max(0,n-p-1);
+  tctx.save();
+  tctx.strokeStyle=K(0.15); tctx.lineWidth=1;
+  tctx.strokeRect(pad+0.5,0.5,w-1,TH-1);
+  if(S.ends==='fix'&&S.ptMode==='ctrl'){
+    for(let j=0;j<m;j++){
+      tctx.strokeStyle=DV[j%DV.length]; tctx.globalAlpha=0.85; tctx.lineWidth=1.2;
+      tctx.beginPath();
+      for(let f=0;f<=S.time.frames;f++){
+        const v=interiorAt((f%S.time.frames)/S.time.frames,n)[j];
+        if(v===undefined) continue;
+        const x=pad+w*f/S.time.frames, y=2+(TH-4)*v;
+        f?tctx.lineTo(x,y):tctx.moveTo(x,y);
+      }
+      tctx.stroke();
+    }
+  }
+  tctx.globalAlpha=1;
+  const px=pad+w*S.time.f/S.time.frames;
+  tctx.strokeStyle=css('--t-ink'); tctx.lineWidth=1.5;
+  tctx.beginPath(); tctx.moveTo(px,0); tctx.lineTo(px,TH); tctx.stroke();
+  tctx.restore();
+  document.getElementById('tnum').textContent=
+    String(S.time.f).padStart(3,'0')+'/'+String(S.time.frames).padStart(3,'0');
+}
+
+/* ---- readouts ---- */
+function readout(){
+  const a=anchorAudit();
+  const total=BEZ.reduce((s,b)=>s+b.length+1,0);
+  const lofted=LOFT?LOFT.curves.reduce((s,c)=>s+c.segs.length+1,0):0;
+  document.getElementById('readout').innerHTML=
+    `<span>点</span><b>${S.P.length} 個</b>`+
+    `<span>次数 p</span><b>${SEED.p}${SEED.p!==S.deg?' (上限)':''}</b>`+
+    `<span>ノット</span><b>${SEED.U.length} 個</b>`+
+    `<span>スパン</span><b>${spanBreaks(SEED).length-1}</b>`+
+    `<span>線の数</span><b>${LOFT?LOFT.curves.length:BEZ.length}</b>`+
+    `<span>アンカー</span><b>${LOFT?lofted:total}</b>`+
+    `<span>変換</span><b>${SEED.p<=3?'厳密':'8分割近似'}</b>`;
+  document.getElementById('tread').innerHTML=
+    `<span>アンカー</span><b>${a.mn===a.mx?a.mn:a.mn+'〜'+a.mx}</b>`+
+    `<span>フレーム間で一定</span><b class="${a.ok?'':'neg'}">${a.ok?'保たれている':'変動あり'}</b>`;
+
+  const gs=knotGroups(), inner=gs.slice(1,-1);
+  const sup=n=>['⁰','¹','²','³','⁴','⁵'][n]||String(n);
+  const kl=document.getElementById('klist');
+  if(S.ptMode==='pass'){
+    kl.innerHTML=`<span class="kempty">通過点では自動</span>`;
+  } else if(S.ends!=='fix'){
+    kl.innerHTML=`<span class="kempty">両端「固定」で編集</span>`;
+  } else if(!inner.length){
+    kl.innerHTML=`<span class="kempty">内部ノットなし</span>`;
+  } else {
+    kl.innerHTML=inner.map(g=>{
+      const c=SEED.p-g.m;
+      return `<div class="krow"><span class="u">${g.u.toFixed(3)}</span>`+
+             `<span class="c ${c<=0?'z':''}">${c<0?'不連続':'C'+sup(c)}</span>`+
+             `<span class="stp"><button data-k="m" data-u="${g.u}">−</button>`+
+             `<span>×${g.m}</span><button data-k="p" data-u="${g.u}">＋</button></span></div>`;
+    }).join('');
+  }
+}
+function toast(m,o){ Studio.toast(m,o); }
+
+/* ============================================================
+   6. interaction
+   ============================================================ */
+let drag=null, ptrs=new Map(), pinch=null, lastTap=0;
+cv.addEventListener('pointerdown',e=>{
+  cv.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
+  if(ptrs.size===2){
+    const [a,b]=[...ptrs.values()];
+    pinch={d:Math.hypot(a.x-b.x,a.y-b.y),cx:(a.x+b.x)/2,cy:(a.y+b.y)/2,
+           s:S.view.s,ox:S.view.ox,oy:S.view.oy};
+    drag=null; return;
+  }
+  if(LOFT){ drag={type:'orbit',x0:e.offsetX,y0:e.offsetY,yaw:S.loft.yaw,pitch:S.loft.pitch}; return; }
+  const hit=hitPoint(e.offsetX,e.offsetY), now=performance.now();
+  if(hit>=0){
+    if(S.sel===hit&&now-lastTap<340){ delPoint(hit); lastTap=0; return; }
+    lastTap=now; S.sel=hit; drag={type:'pt',i:hit,moved:false}; render();
+  } else {
+    S.sel=null; drag={type:'add',x0:e.offsetX,y0:e.offsetY,t0:now,moved:false}; render();
+  }
+});
+cv.addEventListener('pointermove',e=>{
+  if(ptrs.has(e.pointerId)) ptrs.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
+  if(pinch&&ptrs.size===2){
+    const [a,b]=[...ptrs.values()];
+    const d=Math.hypot(a.x-b.x,a.y-b.y), cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
+    const ns=Math.max(0.2,Math.min(8,pinch.s*d/(pinch.d||1)));
+    S.view.ox=cx-(pinch.cx-pinch.ox)*(ns/pinch.s);
+    S.view.oy=cy-(pinch.cy-pinch.oy)*(ns/pinch.s);
+    S.view.s=ns; render(); return;
+  }
+  if(!drag) return;
+  if(drag.type==='orbit'){
+    S.loft.yaw=((drag.yaw+(e.offsetX-drag.x0)*0.4+540)%360)-180;
+    S.loft.pitch=Math.max(0,Math.min(90,drag.pitch+(e.offsetY-drag.y0)*0.3));
+    syncCtl(); build(); render(); return;
+  }
+  if(drag.type==='pt'){
+    if(!drag.moved){ drag.moved=true; }
+    const w=snapXY(toW(e.offsetX,e.offsetY), e.shiftKey);
+    S.P[drag.i]={x:Math.max(-300,Math.min(W+300,w.x)), y:Math.max(-300,Math.min(H+300,w.y))};
+    build(); render();
+  } else if(drag.type==='add'){
+    if(Math.hypot(e.offsetX-drag.x0,e.offsetY-drag.y0)>8) drag.moved=true;
+  }
+});
+function endPtr(e){
+  ptrs.delete(e.pointerId);
+  if(ptrs.size<2) pinch=null;
+  if(drag&&drag.type==='pt'&&drag.moved) commit();
+  if(drag&&drag.type==='add'&&!drag.moved&&performance.now()-drag.t0<600) addPoint(toW(drag.x0,drag.y0));
+  drag=null;
+}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+cv.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const ns=Math.max(0.2,Math.min(8,S.view.s*Math.exp(-e.deltaY*0.0016)));
+  S.view.ox=e.offsetX-(e.offsetX-S.view.ox)*(ns/S.view.s);
+  S.view.oy=e.offsetY-(e.offsetY-S.view.oy)*(ns/S.view.s);
+  S.view.s=ns; render();
+},{passive:false});
+function hitPoint(sx,sy){
+  const R=COARSE?24:14;
+  for(let i=S.P.length-1;i>=0;i--){
+    const q=toS(S.P[i]);
+    if(Math.hypot(q.x-sx,q.y-sy)<=R) return i;
+  }
+  return -1;
+}
+function addPoint(w){
+  w=snapXY(w,false);
+  let best=-1,bd=Infinity;
+  const n=S.P.length, lim=S.ends==='closed'?n:n-1;
+  for(let i=0;i<lim;i++){
+    const a=S.P[i], b=S.P[(i+1)%n];
+    const vx=b.x-a.x, vy=b.y-a.y, wx=w.x-a.x, wy=w.y-a.y;
+    const L=vx*vx+vy*vy; let t=L>0?(wx*vx+wy*vy)/L:0; t=Math.max(0,Math.min(1,t));
+    const d=Math.hypot(w.x-(a.x+vx*t), w.y-(a.y+vy*t));
+    if(d<bd){ bd=d; best=i; }
+  }
+  if(best>=0&&bd<70){ S.P.splice(best+1,0,w); S.sel=best+1; }
+  else { S.P.push(w); S.sel=S.P.length-1; }
+  S.interior=null; build(); render(); commit();
+}
+function delPoint(i){
+  const need=S.ends==='closed'?3:2;
+  if(S.P.length<=need){ toast('これ以上減らせません'); return; }
+  S.P.splice(i,1); S.interior=null; S.sel=null; build(); render(); commit();
+}
+/* 選んだ点を矢印キーで動かす（§7。Studio.keys の extra から呼ぶ） */
+function moveSel(ux,uy,big){
+  if(S.sel===null) return;
+  const p=S.P[S.sel], g=S.grid.step;
+  if(S.grid.snap&&!big){
+    /* スナップ中は隣のグリッド線へ（Shift で1pxずつ） */
+    const nx=(v,d)=> d>0 ? (Math.floor(v/g+1e-9)+1)*g : (Math.ceil(v/g-1e-9)-1)*g;
+    S.P[S.sel]={x: ux?nx(p.x,ux):p.x, y: uy?nx(p.y,uy):p.y};
+  }else{
+    const st=big?(S.grid.snap?1:10):1;
+    S.P[S.sel]={x:p.x+ux*st, y:p.y+uy*st};
+  }
+  build(); render(); commitSoon();
+}
+
+/* ---- knot dragging ---- */
+let pdrag=null;
+function interiorKnots(){ return S.ends==='fix'?SEED.U.slice(SEED.p+1,SEED.N):[]; }
+pv.addEventListener('pointerdown',e=>{
+  pv.setPointerCapture(e.pointerId);
+  if(S.ends==='fix'&&S.ptMode==='ctrl'&&e.offsetY<KH){
+    const gs=knotGroups();
+    let best=-1,bd=Infinity;
+    for(let i=1;i<gs.length-1;i++){
+      const d=Math.abs(uToX(gs[i].u)-e.offsetX);
+      if(d<bd){ bd=d; best=i; }
+    }
+    if(best>=0&&bd<(COARSE?28:20)){
+      pdrag={val:gs[best].u,k:gs[best].m,snapped:false,moved:false}; return;
+    }
+  }
+});
+pv.addEventListener('pointermove',e=>{
+  if(!pdrag) return;
+  let u=Math.max(0.004,Math.min(0.996,xToU(e.offsetX)));
+  const inner=interiorKnots(), rest=[]; let lifted=0;
+  for(const v of inner){
+    if(lifted<pdrag.k&&Math.abs(v-pdrag.val)<1e-9){ lifted++; continue; }
+    rest.push(v);
+  }
+  let sn=false;
+  for(const o of rest) if(Math.abs(o-u)<0.012){ u=o; sn=true; break; }
+  S.interior=rest.concat(new Array(pdrag.k).fill(u)).sort((a,b)=>a-b);
+  pdrag.val=u; pdrag.moved=true;
+  if(sn&&!pdrag.snapped){ pdrag.snapped=true; toast('ノットが重なりました'); }
+  if(!sn) pdrag.snapped=false;
+  build(); render();
+});
+function endP(){ if(pdrag&&pdrag.moved) commit(); pdrag=null; }
+pv.addEventListener('pointerup',endP);
+pv.addEventListener('pointercancel',endP);
+
+/* ---- timeline scrub ---- */
+let tdrag=false;
+function scrub(x){
+  const pad=6,w=TW-pad*2;
+  S.time.f=Math.max(0,Math.min(S.time.frames-1,Math.round((x-pad)/w*S.time.frames)));
+  build(); render();
+}
+tl.addEventListener('pointerdown',e=>{ tl.setPointerCapture(e.pointerId); tdrag=true; S.time.playing=false; setPlay(); scrub(e.offsetX); });
+tl.addEventListener('pointermove',e=>{ if(tdrag) scrub(e.offsetX); });
+tl.addEventListener('pointerup',()=>tdrag=false);
+tl.addEventListener('pointercancel',()=>tdrag=false);
+function setPlay(){ document.getElementById('play').textContent=S.time.playing?'❚❚':'▶'; }
+document.getElementById('play').addEventListener('click',()=>{ S.time.playing=!S.time.playing; setPlay(); });
+/* Space＝再生／停止（§7）。時間が無効なら有効にして再生する */
+function togglePlay(){
+  const ev=window.event;
+  if(ev&&ev.type==='keydown'&&ev.key==='Escape') return;   // kit の Esc 後始末が play() を呼んでも再開しない
+  if(!S.time.on){ S.time.on=true; S.time.playing=true; syncUI(); build(); render(); setPlay(); return; }
+  S.time.playing=!S.time.playing; setPlay();
+}
+
+/* ============================================================
+   7. wiring
+   ============================================================ */
+document.getElementById('tabs').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#tabs button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  document.querySelectorAll('.tabsec').forEach(s=>s.classList.toggle('on',s.dataset.s===b.dataset.s));
+});
+document.querySelectorAll('[data-seg]').forEach(el=>{
+  el.addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+    const key=el.dataset.seg, v=b.dataset.v;
+    if(key==='ptMode') S.ptMode=v;
+    else if(key==='ends'){ S.ends=v; S.interior=null; }
+    else if(key==='layout') S.mul.layout=v;
+    build(); render();
+    if(key!=='layout') commit();
+  });
+});
+document.querySelectorAll('[data-sw]').forEach(el=>{
+  el.addEventListener('click',()=>{
+    const k=el.dataset.sw;
+    const on=el.getAttribute('aria-pressed')!=='true';
+    el.setAttribute('aria-pressed',String(on));
+    if(k==='mirror') S.mul.mirror=on;
+    else if(k==='gsnap'){ S.grid.snap=on; if(on) S.show.grid=true, syncUI(); }
+    else if(k==='mul') S.mul.on=on;
+    else if(k==='warp') S.warp.on=on;
+    else if(k==='loft'){ S.loft.on=on; build(); fitView(false); }
+    else if(k==='time'){ S.time.on=on; if(on) S.time.playing=true, setPlay(); }
+    build(); render();
+  });
+});
+document.getElementById('viewbar').addEventListener('click',e=>{
+  const b=e.target.closest('.chip'); if(!b) return;
+  S.show[b.dataset.v]=!S.show[b.dataset.v];
+  b.setAttribute('aria-pressed',String(S.show[b.dataset.v]));
+  render();
+});
+document.getElementById('minBtn').addEventListener('click',e=>{
+  S.basisOpen=!S.basisOpen;
+  document.getElementById('param').classList.toggle('min',!S.basisOpen);
+  e.target.setAttribute('aria-pressed',String(S.basisOpen));
+  requestAnimationFrame(resize);
+});
+document.getElementById('minBtn').setAttribute('aria-pressed','true');
+document.getElementById('addPt').addEventListener('click',()=>{
+  const i=S.sel===null?S.P.length-1:S.sel;
+  const a=S.P[i], b=S.P[(i+1)%S.P.length];
+  addPoint({x:(a.x+b.x)/2+14,y:(a.y+b.y)/2+14});
+});
+document.getElementById('delPt').addEventListener('click',()=>delPoint(S.sel===null?S.P.length-1:S.sel));
+function applyPreset(kind){
+  S.P=presetPoints(kind);
+  if(kind==='circle'){ S.ends='closed'; }
+  else if(kind==='wave'||kind==='angle'){ S.ends='fix'; }   // 開いた曲線の形は両端を固定に戻す
+  S.interior=null; S.sel=null; syncUI(); build(); fitView(); render(); commit();
+}
+document.querySelectorAll('[data-pre]').forEach(b=>b.addEventListener('click',()=>applyPreset(b.dataset.pre)));
+document.getElementById('fitBtn').addEventListener('click',()=>fitView());
+document.getElementById('knotEven').addEventListener('click',()=>{
+  S.interior=null; build(); render(); commit(); toast('ノットを均等に戻しました');
+});
+document.getElementById('knotRand').addEventListener('click',()=>{
+  if(S.ends!=='fix'||S.ptMode!=='ctrl'){ toast('制御点モードかつ両端が固定のときに使えます'); return; }
+  const inner=interiorKnots();
+  if(!inner.length){ toast('内部ノットがありません'); return; }
+  const r=[]; for(let i=0;i<inner.length;i++) r.push(0.04+Math.random()*0.92);
+  S.interior=r.sort((a,b)=>a-b); build(); render(); commit();
+});
+document.getElementById('klist').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-k]'); if(!b) return;
+  const u=+b.dataset.u, inner=interiorKnots();
+  if(b.dataset.k==='p'){
+    const at=inner.filter(v=>Math.abs(v-u)<1e-9).length;
+    if(SEED.p-(at+1)<-1){ toast('これ以上重ねられません'); return; }
+    let bi=-1,bd=Infinity;
+    inner.forEach((v,i)=>{ const d=Math.abs(v-u); if(d>1e-9&&d<bd){ bd=d; bi=i; } });
+    if(bi<0){ toast('移動できるノットがありません'); return; }
+    const nx=inner.slice(); nx[bi]=u; S.interior=nx.sort((a,b)=>a-b);
+  } else {
+    const at=inner.filter(v=>Math.abs(v-u)<1e-9).length;
+    if(at<=1){ toast('重なりの下限は1です'); return; }
+    const dist=[0,...new Set(inner.map(v=>+v.toFixed(9))),1].sort((a,b)=>a-b);
+    let gx=0.5,gw=-1;
+    for(let i=0;i<dist.length-1;i++){ const w=dist[i+1]-dist[i]; if(w>gw){ gw=w; gx=(dist[i]+dist[i+1])/2; } }
+    const nx=inner.slice(); nx[nx.findIndex(v=>Math.abs(v-u)<1e-9)]=gx;
+    S.interior=nx.sort((a,b)=>a-b);
+  }
+  build(); render(); commit();
+});
+function syncUI(){
+  document.querySelectorAll('[data-seg]').forEach(el=>{
+    const k=el.dataset.seg;
+    const cur=k==='ptMode'?S.ptMode:k==='ends'?S.ends:S.mul.layout;
+    el.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===cur)));
+  });
+  document.querySelectorAll('[data-sw]').forEach(el=>{
+    const k=el.dataset.sw;
+    const on=k==='mirror'?S.mul.mirror:k==='gsnap'?S.grid.snap:k==='mul'?S.mul.on:k==='warp'?S.warp.on:k==='loft'?S.loft.on:S.time.on;
+    el.setAttribute('aria-pressed',String(on));
+  });
+  document.querySelectorAll('#viewbar .chip').forEach(b=>b.setAttribute('aria-pressed',String(!!S.show[b.dataset.v])));
+  syncCtl();
+}
+
+/* ============================================================
+   8. export
+   ============================================================ */
+const R2=v=>(+v.toFixed(2));
+function pathD(segs,close){
+  if(!segs.length) return '';
+  let d=`M ${R2(segs[0].p0.x)} ${R2(segs[0].p0.y)}`;
+  segs.forEach(s=>{ d+=` C ${R2(s.c1.x)} ${R2(s.c1.y)} ${R2(s.c2.x)} ${R2(s.c2.y)} ${R2(s.p1.x)} ${R2(s.p1.y)}`; });
+  return d+(close?' Z':'');
+}
+function stamp(){ const d=new Date(),z=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}`; }
+function dl(blob,name){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},100);
+}
+function boxOf(groups){
+  let mx=1e9,Mx=-1e9,my=1e9,My=-1e9;
+  groups.forEach(g=>g.forEach(s=>[s.p0,s.c1,s.c2,s.p1].forEach(p=>{
+    mx=Math.min(mx,p.x);Mx=Math.max(Mx,p.x);my=Math.min(my,p.y);My=Math.max(My,p.y);})));
+  return {mx,Mx,my,My};
+}
+/* 線の色は上部バーの色見本。なし のときは stroke="none"（見えない線） */
+const strokeVal=()=>ART.stroke==='none'?'none':ART.stroke;
+function currentSVG(){
+  const sc=strokeVal();
+  if(LOFT){
+    const g=LOFT.curves.map(c=>c.segs);
+    const b=boxOf(g);
+    const k=Math.min((W-80)/((b.Mx-b.mx)||1),(H-80)/((b.My-b.my)||1));
+    const ox=(W-(b.Mx-b.mx)*k)/2-b.mx*k, oy=(H-(b.My-b.my)*k)/2-b.my*k;
+    const T=s=>({p0:{x:s.p0.x*k+ox,y:s.p0.y*k+oy},c1:{x:s.c1.x*k+ox,y:s.c1.y*k+oy},
+                 c2:{x:s.c2.x*k+ox,y:s.c2.y*k+oy},p1:{x:s.p1.x*k+ox,y:s.p1.y*k+oy}});
+    const mk=d=>LOFT.curves.filter(c=>c.dir===d)
+      .map(c=>`  <path d="${pathD(c.segs.map(T))}" fill="none" stroke="${sc}" stroke-width="0.75"/>`).join('\n');
+    return `<g id="iso-u">\n${mk('u')}\n</g>\n<g id="iso-v">\n${mk('v')}\n</g>`;
+  }
+  const cl=S.ends==='closed';
+  return `<g id="spline">\n`+BEZ.map(s=>`  <path d="${pathD(s,cl)}" fill="none" stroke="${sc}" stroke-width="1"/>`).join('\n')+`\n</g>`;
+}
+/* 完全なSVG文書。地色（背景の rect）は withBg のときだけ入れる（§8: コピーには入れない） */
+function svgDoc(inner,withBg){
+  const bg=(withBg&&ART.bg!=='none')?`\n  <rect id="bg" x="0" y="0" width="${W}" height="${H}" fill="${ART.bg}"/>`:'';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${bg}\n${inner}\n</svg>`;
+}
+function saveSVG(inner,name){
+  dl(new Blob([svgDoc(inner,false)],{type:'image/svg+xml'}), name);
+  toast('SVGを書き出しました');
+}
+function doCopySVG(){
+  Studio.copySVG(svgDoc(currentSVG(),false))
+    .then(r=>toast(Studio.copyResultMessage(r)))
+    .catch(e=>toast(String((e&&e.message)||e),{kind:'error',sticky:true}));
+}
+function exportSVG(){ saveSVG(currentSVG(),`spline_${stamp()}.svg`); }
+/* PNG は画面ではなくSVGから描く（補助表示を含めず、背景の色を入れる。2倍） */
+function exportPNG(){
+  const sc=2, c=document.createElement('canvas'); c.width=W*sc; c.height=H*sc;
+  const g=c.getContext('2d');
+  const url=URL.createObjectURL(new Blob([svgDoc(currentSVG(),true)],{type:'image/svg+xml'}));
+  const img=new Image();
+  img.onload=()=>{
+    g.drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
+    c.toBlob(b=>{ dl(b,`spline_${stamp()}.png`); toast('PNGを書き出しました'); });
+  };
+  img.onerror=()=>{ URL.revokeObjectURL(url); toast('PNGを書き出せませんでした',{kind:'error',sticky:true}); };
+  img.src=url;
+}
+function exportSeq(){
+  if(!S.time.on){ toast('時間を有効にすると使えます'); return; }
+  const keep=S.time.f, gs=[];
+  for(let f=0;f<S.time.frames;f++){
+    S.time.f=f; build();
+    gs.push(`<g id="frame_${String(f).padStart(3,'0')}">\n${currentSVG()}\n</g>`);
+  }
+  S.time.f=keep; build(); render();
+  saveSVG(gs.join('\n'),`spline_${S.time.frames}f_${stamp()}.svg`);
+}
+function exportJSON(){
+  if(!S.time.on){ toast('時間を有効にすると使えます'); return; }
+  const keep=S.time.f, frames=[];
+  for(let f=0;f<S.time.frames;f++){
+    S.time.f=f; build();
+    const paths=BEZ.map(segs=>{
+      const anchors=segs.map(s=>[R2(s.p0.x),R2(s.p0.y)]);
+      anchors.push([R2(segs[segs.length-1].p1.x),R2(segs[segs.length-1].p1.y)]);
+      return {
+        anchors,
+        outTangents:segs.map(s=>[R2(s.c1.x-s.p0.x),R2(s.c1.y-s.p0.y)]),
+        inTangents:segs.map(s=>[R2(s.c2.x-s.p1.x),R2(s.c2.y-s.p1.y)])
+      };
+    });
+    frames.push({frame:f,paths});
+  }
+  const a=anchorAudit();
+  S.time.f=keep; build(); render();
+  dl(new Blob([JSON.stringify({tool:'spline',box:[W,H],frames:S.time.frames,degree:SEED.p,
+    anchorCount:a.mn,anchorCountConstant:a.ok,closed:S.ends==='closed',data:frames})],
+    {type:'application/json'}),`spline_${S.time.frames}f_${stamp()}.json`);
+  toast('JSONを書き出しました');
+}
+
+/* ============================================================
+   上部バー（§0）: 色見本（線・背景）・コピー・書き出し。大きさ・再生・映像は
+   このツール自身の時間（再生バー）と重なるので出さない（motion:false・sizes:false）
+   ============================================================ */
+const ICON_DOWNLOAD='<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.50095 3.64935C9.66036 3.48994 9.87656 3.40039 10.102 3.40039H18.7484C19.2179 3.40039 19.5984 3.78095 19.5984 4.25039V19.7504C19.5984 20.2198 19.2179 20.6004 18.7484 20.6004H5.24844C4.77899 20.6004 4.39844 20.2198 4.39844 19.7504V9.10394C4.39844 8.87851 4.48799 8.66231 4.6474 8.5029L9.50095 3.64935ZM10.247 4.60039L5.59844 9.24892V19.4004H18.3984V4.60039H10.247ZM5.4962 9.35116L5.49592 9.35143L5.24844 9.10394L5.49592 9.35143C5.49602 9.35134 5.49611 9.35125 5.4962 9.35116ZM10.3492 4.49816C10.3493 4.49807 10.3494 4.49797 10.3495 4.49788L10.102 4.25039L10.3495 4.49788L10.3492 4.49816ZM11.3983 13.5522L9.60457 11.7584L8.75604 12.607L11.3967 15.2477C11.7287 15.5796 12.2669 15.5796 12.5988 15.2477L15.2391 12.6074L14.3906 11.7588L12.5983 13.5511L12.5979 9.00009L11.3979 9.00019L11.3983 13.5522Z" fill="currentColor"/></svg>';
+const bar=Studio.appBar('#bar',{
+  name:'Bスプライン', memo:false, caption:false, theme:false,
+  onCopy:doCopySVG, copyLabel:'コピー',
+  onSvg:exportSVG, svgLabel:'SVG', svgTitle:'SVGを書き出し', svgAriaLabel:'SVGを書き出し', svgIcon:ICON_DOWNLOAD,
+  onPng:exportPNG,
+  extra:[
+    {label:'SVG連番', id:'seqBtn', title:'時間が有効なとき、全コマを1つのSVGに書き出し', onClick:exportSeq},
+    {label:'JSON', id:'jsonBtn', icon:ICON_DOWNLOAD, title:'時間が有効なとき、全コマのアンカーをJSONに書き出し', ariaLabel:'JSONを書き出し', onClick:exportJSON}
+  ]
+});
+const sb=Studio.stageBar('#bar',{
+  motion:false, sizes:false, palettes:true,
+  colors:[{key:'stroke',label:'線',value:ART.stroke},{key:'bg',label:'背景',value:ART.bg}],
+  onColorChange:(key,v)=>{ ART[key]=v; render(); }
+});
+
+/* ============================================================
+   9. loop + boot
+   ============================================================ */
+let last=performance.now(), acc=0;
+function tick(now){
+  const dt=Math.min(0.1,(now-last)/1000); last=now;
+  if(S.time.on&&S.time.playing){
+    acc+=dt*S.time.speed*S.time.frames/2.5;
+    while(acc>=1){ S.time.f=(S.time.f+1)%S.time.frames; acc-=1; }
+    build(); render();
+  }
+  requestAnimationFrame(tick);
+}
+S.P=presetPoints('circle');   // 最初の形（INIT-01）: 版面の中央に大きな円
+buildControls();
+syncUI();
+build(); setPlay();
+commit();   // 最初の状態（⌘Z の戻り先）
+window.addEventListener('resize',()=>requestAnimationFrame(resize));
+if(window.ResizeObserver) new ResizeObserver(()=>requestAnimationFrame(resize)).observe(document.querySelector('.stage'));
+resize();
+/* ============================================================
+   キー（§7・KEY-00）。keydown は自前で書かず Studio.keys に集める。
+   このツールにある機能だけを渡す（選択ツール・全選択・カットは無いので渡さない）
+   ============================================================ */
+Studio.keys({
+  undo:undo, redo:redo,                  // ⌘Z / ⇧⌘Z
+  copy:doCopySVG,                        // ⌘C: SVGをコピー（地色は含めない）
+  toggleColorTarget:()=>{ const c=sb.colors; c.setTarget(c.getTarget()==='stroke'?'bg':'stroke'); },   // X
+  play:togglePlay,                       // Space: 再生／停止
+  del:()=>{ if(S.sel!==null) delPoint(S.sel); },   // Delete / Backspace: 選んだ点を削除
+  reseed:()=>applyPreset('random'),      // N: 点をランダムに置き直す
+  escSteps:[
+    ()=>sb.colors.closePopover(),                                                   // 色の小窓
+    ()=>{ if(S.sel===null) return false; S.sel=null; render(); return true; },      // 選択を外す
+    ()=>{ if(!(S.time.on&&S.time.playing)) return false; S.time.playing=false; setPlay(); return true; }   // 再生を止める
+  ],
+  extra:{
+    'arrowup':()=>moveSel(0,-1,false), 'arrowdown':()=>moveSel(0,1,false),
+    'arrowleft':()=>moveSel(-1,0,false), 'arrowright':()=>moveSel(1,0,false),
+    'shift+arrowup':()=>moveSel(0,-1,true), 'shift+arrowdown':()=>moveSel(0,1,true),
+    'shift+arrowleft':()=>moveSel(-1,0,true), 'shift+arrowright':()=>moveSel(1,0,true)
+  }
+});
+requestAnimationFrame(tick);
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html data-sm-build="b31148d・2026-10-28 09:33" data-sm-app="grid-pattern" lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="studio-spec" content="type:一枚もの;features:svg,numeric,color">
+<title>グリッドパターン</title>
+<link rel="stylesheet" href="_ext/000_kit/studio2.css?v=0.7.8">
+<style>
+/* 独自CSSは最小限（006 §6）。版面の大きさと、プリセット・図形・ルールの行だけ。 */
+#bar [hidden]{display:none!important}   /* kit が hidden で隠すボタン（常時PNG）を .btn の display に負けさせない */
+#board{width:100%;height:100%;border:0;overflow:visible}
+#drawing{display:block;width:100%;height:100%}
+#drawing.outline g[id^="color"] *{fill:none!important;stroke:#000!important;stroke-width:1px!important;vector-effect:non-scaling-stroke}
+
+.pre-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.pre{display:block;padding:3px;cursor:pointer;font:inherit;color:inherit;background:var(--surface);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s)}
+.pre:hover{background:var(--hovered)}
+.pre[aria-pressed="true"]{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
+.pre svg{display:block;width:100%;background:#fff;border-radius:1px}
+.pre span{display:block;font:400 11px/1.5 var(--font);text-align:center;color:var(--onSurfaceVariant);margin-top:2px;white-space:nowrap}
+.pre[aria-pressed="true"] span{color:var(--onSurface);font-weight:700}
+
+/* 使う図形の一覧（1行 = 1図形）・＋図形の見本の格子・SVGを貼る欄 */
+.shp-list{display:flex;flex-direction:column;gap:4px}
+.shp-row{display:flex;align-items:center;gap:4px}
+.shp-pick{flex:1;min-width:0;display:flex;align-items:center;gap:var(--sp-xs);height:36px;padding:0 var(--sp-xs);cursor:pointer;
+  font:400 12px/1 var(--font);color:var(--onSurface);text-align:left;background:var(--surface);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s)}
+.shp-pick:hover{background:var(--hovered)}
+.shp-pick[aria-pressed="true"]{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary);font-weight:700}
+.shp-no{flex:none;width:14px;font:400 11px/1 var(--mono);color:var(--onSurfaceVariant);text-align:right}
+.shp-th{flex:none;width:26px;height:26px;color:var(--primary)}
+.shp-th svg{display:block;width:100%;height:100%}
+.shp-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shp-row .sk-mini{flex:none;width:28px;padding:0}
+.shp-row .sk-mini:disabled{opacity:.4;cursor:not-allowed}
+.shp-add{margin-top:var(--sp-xs)}
+.shp-add[aria-expanded="true"]{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.shp-menu{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:var(--sp-xs)}
+.shp-menu[hidden]{display:none}
+.shp-opt{display:block;padding:3px;cursor:pointer;font:inherit;color:var(--primary);background:var(--surface);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s)}
+.shp-opt:hover{background:var(--hovered)}
+.shp-opt svg{display:block;width:100%;aspect-ratio:1}
+.shp-opt span{display:block;font:400 11px/1.5 var(--font);text-align:center;color:var(--onSurfaceVariant);white-space:nowrap}
+.shp-paste{display:flex;flex-direction:column;gap:var(--sp-xs);margin-top:var(--sp-xs)}
+.shp-paste label{font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant)}
+.shp-paste textarea{width:100%;box-sizing:border-box;min-height:36px;font:400 11px/1.5 var(--font);resize:vertical}
+
+.rul{padding:var(--sp-xs) 0;border-top:var(--bd) solid var(--outlineBright)}
+.rul:first-child{border-top:0;padding-top:0}
+.rul-head{display:flex;align-items:center;gap:var(--sp-xs)}
+.rul-head .sk-checkrow{flex:1;margin:0}
+.rul-head .sk-checkrow span{font-weight:700}
+.rul.off .rul-head .sk-checkrow span{font-weight:400;color:var(--onSurfaceVariant)}
+.rul .steps{font:400 11px/1 var(--mono);color:var(--onSurfaceVariant)}
+.rul-body{display:flex;flex-direction:column;gap:var(--sp-xs);margin-top:var(--sp-xs)}
+.rul.off .rul-body{display:none}
+.rul-line{display:flex;align-items:center;gap:6px}
+.rul-line select{flex:1;min-width:0}
+.rul-arg{flex:none;display:flex;align-items:center;gap:4px}
+.rul-arg label{font:400 11px/1 var(--font);color:var(--onSurfaceVariant);white-space:nowrap}
+.rul-arg input{width:48px;height:28px;text-align:right;padding:0 5px;border:var(--bd) solid var(--outline);
+  border-radius:var(--r-s);background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--mono);font-variant-numeric:tabular-nums}
+.rul-arg input:focus{border-color:var(--primary);outline-offset:0}
+.rul-thumb{flex:none;width:28px;height:28px;border:var(--bd) solid var(--outlineBright);border-radius:var(--r-xs);
+  background:var(--surface);color:var(--primary)}
+.rul-eye{flex:none;white-space:nowrap}
+.rul-eye[aria-pressed="true"]{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.rul-eye:disabled{opacity:.4;cursor:not-allowed}
+#panel .sk-grp .sk-seg button{white-space:nowrap;min-width:0;padding-left:4px;padding-right:4px}   /* 「行ずらし」を折り返さない */
+#sizeRules{margin-top:var(--sp-xs)}
+#sizeRules .rul:first-child{border-top:var(--bd) solid var(--outlineBright);padding-top:var(--sp-xs)}
+.pa-row{display:flex;gap:6px}
+.pa-row .sk-btn{flex:1}
+.rul-line.spec{flex-wrap:wrap}
+.rul-line.spec .sk-checkrow{flex:none;margin:0}
+.rul-arg select{height:28px;min-width:0}
+.rul-arg.fix input{width:48px}
+.rul-ex{display:flex;flex-direction:column;gap:var(--sp-xs);padding:var(--sp-xs);border:var(--bd) solid var(--outlineBright);border-radius:var(--r-s)}
+.rul-ex[hidden]{display:none}
+.rul-line[hidden],.rul-add[hidden]{display:none}
+.rul-add{align-self:flex-start}
+.sk-btn[aria-pressed="true"]{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.hf-line{display:flex;align-items:center;gap:6px;margin-bottom:var(--sp-xs)}
+.hf-line label{flex:none;width:36px;font:400 11px/1 var(--font);color:var(--onSurfaceVariant)}
+.hf-line select{flex:1;min-width:0}
+.pa-row .sk-btn:disabled{opacity:.4;cursor:not-allowed}
+.rul-band{height:8px;margin-top:4px;border:var(--bd) solid var(--outlineBright);border-radius:var(--r-xs);overflow:hidden;background:#fff}
+.rul-band svg{display:block;width:100%;height:100%}
+.rul.off .rul-band{display:none}
+.rul-arg.start input{width:40px}
+#drawing.editing{cursor:crosshair;touch-action:none}
+
+/* 候補のシート（版面の上に重ねる）。枠・選択の見た目はプリセットの見本（.pre）に揃える */
+#stage{position:relative}
+#cand{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;gap:var(--sp-s);padding:var(--sp-m);background:var(--surfaceDim);min-height:0}
+#cand[hidden]{display:none}
+.cand-bar,.cand-foot{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-xs) var(--sp-m)}
+.cand-bar .sk-checkrow{margin:0}
+.cand-bar .sp{flex:1}
+.cand-bar .sk-btn,.cand-foot .sk-btn{width:auto;min-width:96px;padding:0 var(--sp-m)}
+.cand-foot{justify-content:flex-end}
+.cand-wrap{flex:1 1 0;min-height:0;display:flex;justify-content:center}
+.cand-grid{height:100%;max-width:100%;aspect-ratio:2/1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:var(--sp-s)}
+.cand-card{user-select:none;position:relative;min-width:0;min-height:0;overflow:hidden;cursor:pointer;
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s)}
+.cand-card:hover{border-color:var(--primary)}
+.cand-card[aria-selected="true"]{border-color:var(--primary);box-shadow:inset 0 0 0 2px var(--primary)}
+.cand-card>svg{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}   /* クリックの対象は常に枠（見本を描き直しても、ダブルクリックが途切れない） */
+.cand-card .no{position:absolute;left:7px;top:6px;font:400 10px/1 var(--mono);color:#6F6F6F;pointer-events:none}
+.cand-card .keep{position:absolute;right:5px;top:5px;height:24px;padding:0 8px;font-size:11px;background:#fff;color:#000;border-color:#D1D0CD}
+.cand-card .keep[aria-pressed="true"]{background:#000;color:#fff;border-color:#000}
+@media (max-width:1023px){#cand{position:relative;inset:auto;height:80vh}}
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body>
+
+<header id="bar"></header>
+
+<div id="main">
+  <div id="stage">
+    <div id="board"><svg id="drawing" viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="グリッドパターン"></svg></div>
+    <div id="cand" hidden aria-label="候補">
+      <div class="cand-bar">
+        <label class="sk-row sk-checkrow"><input type="checkbox" id="lkGrid"><span>形を固定</span></label>
+        <label class="sk-row sk-checkrow"><input type="checkbox" id="lkShapes"><span>図形を固定</span></label>
+        <label class="sk-row sk-checkrow"><input type="checkbox" id="lkColor" checked><span>色を固定</span></label>
+        <span class="sp"></span>
+        <button type="button" class="sk-btn" id="candReroll" title="残す以外の候補を作り直す（R）">撒き直す</button>
+        <button type="button" class="sk-btn" id="candClose" title="候補を閉じて版面に戻る（Esc）">閉じる</button>
+      </div>
+      <div class="cand-wrap"><div class="cand-grid" id="candGrid" role="listbox" aria-label="候補の一覧"></div></div>
+      <div class="cand-foot"><button type="button" class="sk-btn primary" id="candApply" disabled title="選んだ候補を版面に入れる（Enter・ダブルクリック）">版面へ</button></div>
+    </div>
+  </div>
+  <aside id="panel"></aside>
+</div>
+
+<script src="_ext/000_kit/studio-kit.js?v=0.7.10"></script>
+<script src="core.js?v=3.5.0"></script>
+<script src="svgparse.js?v=3.5.0"></script>
+<script>
+"use strict";
+/* ==========================================================================
+   グリッドパターン — グリッドの各マスに、パターンと並び順を組み合わせて図形を置く。
+   006 §0「標準の画面」に準拠（上部バー = Studio.appBar + stageBar／キー = Studio.keys）。
+   ========================================================================== */
+const $=id=>document.getElementById(id), NSU="http://www.w3.org/2000/svg";
+/* 純関数（パターン・並び順・図形の形・ルール評価・状態の検査・プリセット）は core.js。貼った SVG の読み取りは svgparse.js */
+const {f,clamp,clone,PATTERN,ORDER,RULES,UNIT,FIT_MARGIN,WORLD,SHAPE_TYPES,MAX_SHAPES,
+  makeShape,shapeSVG,customFromShapes,canRound,alwaysLine,typeName,
+  buildCells,colorGroups,colorCount,OFF,ON,present,normRule,ruleOf,initState,sanitize,PRESETS,presetShapes,
+  GRIDS,gridKind,gridName,sizeable,sizePatternKeys,defaultSizeRule,sizeSteps,layoutGrid,
+  addShapeToState,removeShapeFromState,moveShapeInState,
+  SYMS,symType,symCaption,randomPick,presetGrid,presetShift,presetSym,makeCandidates,candidateState,
+  STEP_OPTS,OPS,AREAS,defaultExtra,cellAt,cellsAlong,bandOf,argShow,argRead,setOverride,clearOverride,clearOverrides,overrideCount,overrideCells,valueOptions,ruleCaption}=GridCore;
+const toast=Studio.toast;
+
+/* --- 出自（§1） --- */
+const TOOL="grid-pattern", PJ="136_グリッドパターン",
+  LAW="グリッドの各マスに、数値パターンと並び順を組み合わせて図形を置く（表示・図形・向き・倍率・色・横のずれ・縦のずれに別々の規則。2本重ねる・範囲で絞る・マスを手で直す）",
+  TOOL_VERSION="3.5.0", PARAMS_VERSION=2;
+
+/* S を frame（{x,y,w,h}）の中央に収めて描く。座標は拡縮済みの値で書く（書き出しにtransformを残さない）。
+   返り値: shapes = 書き出す図形（g#color1〜g#color4・色の数だけ）／ grid・order・marks = 画面だけの補助（グリッド線・並び順の線・手で直したマスの印）／ geom = 画面の座標とマスの対応 */
+function render(S,frame,o){
+  o=o||{};
+  const C=S.cols;
+  const fit=Studio.fitInto(layoutGrid(S,UNIT).box,frame,o.margin==null?FIT_MARGIN:o.margin);   // 全マスの外接（間隔が負のはみ出し・行ずらしも含む）を版面の中央へ
+  const u=UNIT*fit.scale, ox=fit.tx, oy=fit.ty;
+  const cells=buildCells(S,u,ox,oy);
+  const shapes=colorGroups(S,cells);
+  let grid="",order="",marks="";
+  if(o.aids){
+    const L=layoutGrid(S,u);
+    if(S.showGrid){
+      const d=L.cells.map(c=>"M"+c.poly.map(p=>f(ox+p[0])+" "+f(oy+p[1])).join("L")+"Z").join("");   // 各マスの輪郭（形ごとに正しい線）
+      grid=`<path d="${d}" fill="none" stroke="#8C8B87" stroke-opacity=".45" stroke-width="${f(2*fit.scale)}" pointer-events="none"/>`;}
+    const sym=symType(S);
+    if(sym!=="none"){   // 対称の鏡の線（画面だけ・グリッド線と同じ灰色の破線）。左右 = 縦の中心線・上下 = 横の中心線・4回転 = 両方
+      const b=L.box,cx=ox+b.x+b.w/2,cy=oy+b.y+b.h/2,ex=0.03*Math.max(b.w,b.h);
+      let d="";
+      if(sym!=="tb")d+=`M${f(cx)} ${f(oy+b.y-ex)}L${f(cx)} ${f(oy+b.y+b.h+ex)}`;
+      if(sym!=="lr")d+=`M${f(ox+b.x-ex)} ${f(cy)}L${f(ox+b.x+b.w+ex)} ${f(cy)}`;
+      grid+=`<path d="${d}" fill="none" stroke="#8C8B87" stroke-opacity=".45" stroke-width="${f(2*fit.scale)}" stroke-dasharray="${f(12*fit.scale)} ${f(8*fit.scale)}" pointer-events="none"/>`;}
+    if(o.showOrder){
+      const sx=o.showOrder.endsWith(":x"),id=sx?o.showOrder.slice(0,-2):o.showOrder,rule=S.rules[id],ov=sx?(rule&&rule.extra):rule;
+      if(rule&&!rule.off&&ov&&!PATTERN[ov.pattern].cell){
+        const pts=ORDER[ov.order].f(S.rows,C)
+          .map(i=>`${f(ox+L.cells[i].cx)},${f(oy+L.cells[i].cy)}`);   // 各マスの中心を通す
+        const h=pts[0].split(",");
+        order=`<g id="order" pointer-events="none"><polyline points="${pts.join(" ")}" fill="none" stroke="#D00138"`+
+          ` stroke-opacity=".9" stroke-width="${f(10*fit.scale)}" stroke-linejoin="round"/>`+
+          `<circle cx="${h[0]}" cy="${h[1]}" r="${f(24*fit.scale)}" fill="#D00138"/></g>`;}}
+    const oc=overrideCells(S);
+    if(oc.length){   // 手で直したマスの小さな印（画面だけ）
+      marks=`<g id="marks" pointer-events="none" fill="#D00138">`+oc.map(([r,c])=>{
+        const cl=L.cells[r*C+c],x=Math.min(...cl.poly.map(p=>p[0])),y=Math.min(...cl.poly.map(p=>p[1]));
+        return`<circle cx="${f(ox+x+0.14*u)}" cy="${f(oy+y+0.14*u)}" r="${f(0.07*u)}"/>`;}).join("")+`</g>`;}
+  }
+  return {shapes:shapes,grid:grid,order:order,marks:marks,geom:{u:u,ox:ox,oy:oy}};
+}
+
+/* ============ 状態 ============ */
+let S=initState(), showOrder=null, currentPreset=-1;
+let selIdx=0, menuOpen=false;   // 選択中の図形（S.shapes の番号）／＋図形の見本の格子を開いているか（画面だけの状態）
+let cands=null, candOpen=false, candSel=-1, candKeys=null;   // 候補: 8枚 [{S,kind,pinned}]（閉じても残す）／開いているか／選択中の番号／開いている間だけ有効なキー（画面だけの状態）
+const candLocks={grid:false,shapes:false,color:true};   // 候補の固定: 形・図形・色（既定は色だけ）
+let editMode=false, hfItem="visible", hfVal=1, lastGeom=null;   // 手で直す: ON か／直す項目／入れる値（画面だけの状態）／最後に描いた画面の座標
+
+/* ============ 取り消し（§7 ⌘Z / ⇧⌘Z）。変更のあとの状態を積む ============ */
+const hist=Studio.history(100);
+let histTimer=null;
+function commitNow(){clearTimeout(histTimer);histTimer=null;hist.push(clone(S));}
+function commit(){clearTimeout(histTimer);histTimer=setTimeout(commitNow,300);}   // スライダー・数値入力の連続変更用
+function applyState(s){if(!s)return;S=clone(s);currentPreset=-1;syncAll();draw();}
+function undo(){if(histTimer!==null)commitNow();applyState(hist.undo());}
+function redo(){if(histTimer!==null)commitNow();applyState(hist.redo());}
+
+/* ============ 版面（§0・§13 VID-01） ============ */
+let frameBox={x:0,y:0,w:WORLD,h:WORLD,pxW:1080,pxH:1080,key:"1:1"};
+function setFrame(pxW,pxH,key){
+  const a=pxW/pxH;let fw=WORLD,fh=WORLD;
+  if(a<1)fh=fw/a;else if(a>1)fw=fh*a;
+  frameBox={x:0,y:0,w:fw,h:fh,pxW:pxW,pxH:pxH,key:key};
+}
+function guideSVG(){
+  const fr=frameBox,big=Math.max(fr.w,fr.h),y=fr.y-big*0.03,tick=big*0.012;
+  const ln=(x1,y1,x2,y2)=>`<line x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" stroke="#8A8A8A" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+  return `<g class="frame-guide" pointer-events="none">`+
+    `<rect x="${fr.x}" y="${fr.y}" width="${f(fr.w)}" height="${f(fr.h)}" fill="none" stroke="#8A8A8A" stroke-width="1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>`+
+    ln(fr.x,y,fr.x+fr.w,y)+ln(fr.x,y-tick,fr.x,y+tick)+ln(fr.x+fr.w,y-tick,fr.x+fr.w,y+tick)+
+    `<text x="${f(fr.x+fr.w/2)}" y="${f(y-tick*1.3)}" text-anchor="middle" font-size="${f(big*0.022)}" fill="#6F6F6F" `+
+    `font-family="ui-monospace, Menlo, monospace" font-weight="600">${fr.key} · ${fr.pxW} × ${fr.pxH} px</text></g>`;
+}
+const bgRect=()=>S.bg&&S.bg!=="none"?`<rect x="${frameBox.x}" y="${frameBox.y}" width="${f(frameBox.w)}" height="${f(frameBox.h)}" fill="${S.bg}" pointer-events="none"/>`:"";
+
+/* ============ 描画 ============ */
+function draw(){
+  const fr=frameBox,m=Math.max(fr.w,fr.h)*0.06;
+  const svg=$("drawing");
+  svg.setAttribute("viewBox",[fr.x-m,fr.y-m,fr.w+2*m,fr.h+2*m].join(" "));
+  const r=render(S,fr,{aids:true,showOrder:showOrder});
+  lastGeom=r.geom;
+  svg.innerHTML=bgRect()+guideSVG()+r.grid+r.shapes+r.order+r.marks;
+  syncBands();
+  saveHash();
+  if(candOpen)paintCand();   // 候補のシートを開いているあいだは、色・固定の変更に合わせて見本を描き直す
+}
+
+/* ============ 書き出し（§1〜§4・§8） ============ */
+function buildExportSVG(includeBg){
+  const svg=document.createElementNS(NSU,"svg");
+  svg.setAttribute("xmlns",NSU);
+  svg.setAttribute("viewBox",[frameBox.x,frameBox.y,f(frameBox.w),f(frameBox.h)].join(" "));
+  svg.setAttribute("width",f(frameBox.w));svg.setAttribute("height",f(frameBox.h));
+  svg.innerHTML=(includeBg?bgRect():"")+render(S,frameBox,{}).shapes;
+  return svg;
+}
+function exportMeta(){
+  const m={tool:TOOL,pj:PJ,law:LAW,seed:null,memo:bar.memoText(),   // 乱数は「ランダム」ボタンの結果（規則の引数）を params に保存する。実行時の種は持たない
+    toolVersion:TOOL_VERSION,paramsVersion:PARAMS_VERSION,params:clone(S)};
+  if(bar.captionOn()){
+    const items=["グリッド "+S.cols+"列 × "+S.rows+"行","形 "+gridName(gridKind(S)),"間隔 "+S.gap+"%","図形 "+S.shapes.map(typeName).join("・")];
+    if(sizeable(gridKind(S))){
+      if(!S.colSize.off)items.push("列の幅 ← "+PATTERN[S.colSize.pattern].n);
+      if(!S.rowSize.off)items.push("行の高さ ← "+PATTERN[S.rowSize.pattern].n);}
+    items.push(...ruleCaption(S));   // ON のルールごとに「向き ← くり返し／行 ＋足す くり返し／列・円の内側・手で3マス」
+    if(symCaption(S))items.push(symCaption(S));   // 「対称 左右」等
+    for(let k=1;k<=colorCount(S);k++)items.push(k+"色目 "+S["ink"+k]);
+    items.push("背景 "+S.bg);
+    m.caption=[items.join(" · ")];
+  }
+  return m;
+}
+function fileBase(){return Studio.fname(TOOL,S.cols+"x"+S.rows);}
+function doSvg(){
+  const name=fileBase();
+  Studio.exportSVG(buildExportSVG(true),{name:name,standard:true,meta:exportMeta()});
+  toast(name+".svg");
+}
+function doCopy(){
+  const text=Studio.serializeSVG(buildExportSVG(false),{standard:true,meta:exportMeta()});   // §8 COPY-01: 地色を含めない
+  Studio.copySVG(text).then(r=>toast(Studio.copyResultMessage(r)))
+    .catch(()=>toast("コピーできませんでした。「SVG」でファイルとして渡してください",{kind:"error",sticky:true}));
+}
+function doPng(){
+  const name=fileBase();
+  Studio.exportPNG(buildExportSVG(true),{name:name,scale:Math.min(4,2400/Math.max(frameBox.w,frameBox.h))});   // 最大2400px
+  toast(name+".png");
+}
+const ICON_DOWNLOAD='<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.50095 3.64935C9.66036 3.48994 9.87656 3.40039 10.102 3.40039H18.7484C19.2179 3.40039 19.5984 3.78095 19.5984 4.25039V19.7504C19.5984 20.2198 19.2179 20.6004 18.7484 20.6004H5.24844C4.77899 20.6004 4.39844 20.2198 4.39844 19.7504V9.10394C4.39844 8.87851 4.48799 8.66231 4.6474 8.5029L9.50095 3.64935ZM10.247 4.60039L5.59844 9.24892V19.4004H18.3984V4.60039H10.247ZM5.4962 9.35116L5.49592 9.35143L5.24844 9.10394L5.49592 9.35143C5.49602 9.35134 5.49611 9.35125 5.4962 9.35116ZM10.3492 4.49816C10.3493 4.49807 10.3494 4.49797 10.3495 4.49788L10.102 4.25039L10.3495 4.49788L10.3492 4.49816ZM11.3983 13.5522L9.60457 11.7584L8.75604 12.607L11.3967 15.2477C11.7287 15.5796 12.2669 15.5796 12.5988 15.2477L15.2391 12.6074L14.3906 11.7588L12.5983 13.5511L12.5979 9.00009L11.3979 9.00019L11.3983 13.5522Z" fill="currentColor"/></svg>';
+
+const bar=Studio.appBar("#bar",{
+  name:"グリッドパターン",theme:false,
+  onCopy:doCopy,onSvg:doSvg,onPng:doPng,
+  copyLabel:"コピー",
+  svgLabel:"SVG",svgTitle:"SVGを書き出し",svgAriaLabel:"SVGを書き出し",svgIcon:ICON_DOWNLOAD
+});
+/* 動かない図なので motion:false（再生・A/B・秒数なし。インスタONの時だけ「PNG」）。色は 1色目・2色目・背景 */
+const sb=Studio.stageBar("#bar",{
+  motion:false,
+  onSize:(w,h,key)=>{setFrame(w,h,key);draw();},
+  colors:[{key:"ink1",label:"1色目",value:S.ink1},{key:"ink2",label:"2色目",value:S.ink2},{key:"ink3",label:"3色目",value:S.ink3},{key:"ink4",label:"4色目",value:S.ink4},{key:"bg",label:"背景",value:S.bg}],
+  palettes:true,
+  onColorChange:(key,v)=>{S[key]=v;draw();commitNow();},
+  frame:()=>Studio.serializeSVG(buildExportSVG(true),{standard:true}),
+  meta:exportMeta
+});
+
+/* ============ パネル ============ */
+const panelEl=$("panel");
+function makeGroup(label){
+  const g=document.createElement("div");g.className="sk-grp";g.dataset.grp=label||"";
+  if(label){const t=document.createElement("button");t.type="button";t.className="sk-grp-ttl";
+    t.setAttribute("aria-expanded","true");t.textContent=label;
+    t.addEventListener("click",()=>{const c=g.classList.toggle("closed");t.setAttribute("aria-expanded",String(!c));});
+    g.appendChild(t);}
+  panelEl.appendChild(g);return g;
+}
+/* 図形の小さな見本（今の設定で描く。線の図形は線の太さも反映） */
+function thumbSVG(sh){
+  return`<svg viewBox="-2 -2 24 24" xmlns="${NSU}" aria-hidden="true"><g fill="currentColor" stroke="currentColor" stroke-width="0">${shapeSVG(sh,20)}</g></svg>`;
+}
+function orderThumb(key){
+  const n=6,pts=ORDER[key].f(n,n).map(i=>`${5+(i%n)*6},${5+((i/n)|0)*6}`);
+  const h=pts[0].split(",");
+  return`<svg viewBox="0 0 40 40" xmlns="${NSU}"><polyline points="${pts.join(" ")}" fill="none"`+
+    ` stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>`+
+    `<circle cx="${h[0]}" cy="${h[1]}" r="2.4" fill="currentColor"/></svg>`;
+}
+
+/* 先頭: ランダムと戻す（読み込める入力が無いので、戻すはランダムと同じ行） */
+(function(){
+  const g=makeGroup("");
+  const row=document.createElement("div");row.className="pa-row";
+  const rnd=document.createElement("button");rnd.type="button";rnd.className="sk-btn";rnd.textContent="ランダム";
+  rnd.title="図形・ルール・グリッドをまとめてランダムに変える（R）";rnd.onclick=shuffleAll;
+  const cd=document.createElement("button");cd.type="button";cd.className="sk-btn";cd.id="candBtn";cd.textContent="候補";
+  cd.setAttribute("aria-pressed","false");cd.title="ランダムを8つ並べて見比べ、気に入ったものを版面へ入れる（C）";cd.onclick=()=>candOpen?closeCand():openCand();
+  const rst=document.createElement("button");rst.type="button";rst.className="sk-btn";rst.textContent="戻す";
+  rst.title="最初の形に戻す";rst.onclick=resetAll;
+  row.append(rnd,cd,rst);g.appendChild(row);
+})();
+
+/* プリセット（実物サムネイル） */
+(function(){
+  const g=makeGroup("プリセット"),box=document.createElement("div");box.className="pre-grid";box.id="presets";
+  PRESETS.forEach((p,i)=>{
+    const ps={cols:p.cols,rows:p.rows,gap:0,shapes:presetShapes(p),ink1:"#232322",ink2:"#8C8B87",bg:"#FFFFFF",showGrid:false,rules:present(p.w),
+      grid:presetGrid(p),shift:presetShift(p),sym:presetSym(p)};
+    const W=p.cols*UNIT,H=p.rows*UNIT;
+    const r=render(ps,{x:0,y:0,w:W,h:H},{margin:0});
+    const b=document.createElement("button");
+    b.type="button";b.className="pre";b.setAttribute("aria-pressed","false");b.title=p.k;
+    b.innerHTML=`<svg viewBox="0 0 ${W} ${H}" xmlns="${NSU}">${r.shapes}</svg><span>${p.k}</span>`;
+    b.onclick=()=>applyPreset(i);
+    box.appendChild(b);
+  });
+  g.appendChild(box);
+})();
+
+/* 図形: 使う図形の一覧（順番 = 図形ルールの段の順）・＋図形・SVGを貼る・選んだ図形の調整 */
+let ADJ=null, adjRows=null;
+(function(){
+  const g=makeGroup("図形");
+  g.insertAdjacentHTML("beforeend",
+    `<div class="shp-list" id="shpList" role="list" aria-label="使う図形"></div>
+     <button type="button" class="sk-btn shp-add" id="shpAdd" aria-expanded="false" aria-controls="shpMenu">＋図形</button>
+     <div class="shp-menu" id="shpMenu" hidden></div>
+     <div class="shp-paste">
+       <label for="shpPaste">SVGを貼る</label>
+       <textarea id="shpPaste" spellcheck="false" aria-label="図形にするSVGの文字列"></textarea>
+       <button type="button" class="sk-btn" id="shpPasteBtn">追加</button>
+     </div>`);
+  const menu=g.querySelector("#shpMenu");
+  SHAPE_TYPES.forEach(t=>{
+    const b=document.createElement("button");
+    b.type="button";b.className="shp-opt";b.title=t.n+"を末尾に追加";b.dataset.type=t.type;
+    b.innerHTML=thumbSVG(makeShape(t.type))+`<span>${t.n}</span>`;
+    b.onclick=()=>addShape(makeShape(t.type));
+    menu.appendChild(b);
+  });
+  g.querySelector("#shpAdd").onclick=()=>{menuOpen=!menuOpen;syncShapes();};
+  g.querySelector("#shpPasteBtn").onclick=()=>{
+    const ta=$("shpPaste");
+    if(addCustomFromSVG(ta.value))ta.value="";
+  };
+  g.querySelector("#shpList").addEventListener("click",e=>{
+    const b=e.target.closest("button");if(!b||b.disabled)return;
+    const row=b.closest(".shp-row"),i=+row.dataset.i;
+    if(b.classList.contains("shp-pick")){selIdx=i;syncShapes();}
+    else if(b.classList.contains("shp-up"))moveShape(i,-1);
+    else if(b.classList.contains("shp-dn"))moveShape(i,1);
+    else if(b.classList.contains("shp-x"))removeShape(i);
+  });
+
+  /* 選んだ図形の調整（Studio.panel をもう1つ。選択が変わったら values.set で値を差し替える） */
+  const g2=makeGroup("選んだ図形");
+  const mount=document.createElement("div");g2.appendChild(mount);
+  const ANG=[0,15,30,45,60,90,120,135,150,180,210,225,240,270,300,315,330];
+  ADJ=Studio.panel(mount,[
+    {type:"range",integer:true,key:"w",label:"幅",unit:"%",min:10,max:200,step:1,value:100,stops:[10,25,50,75,100,150,200],tol:1},
+    {type:"range",integer:true,key:"h",label:"高さ",unit:"%",min:10,max:200,step:1,value:100,stops:[10,25,50,75,100,150,200],tol:1},
+    {type:"range",integer:true,key:"angle",label:"角度",unit:"°",min:0,max:359,step:1,value:0,stops:ANG,tol:1},
+    {type:"range",integer:true,key:"round",label:"角丸",unit:"%",min:0,max:50,step:1,value:0,stops:[0,10,25,50],tol:1},
+    {type:"checkbox",key:"line",label:"線だけ",value:false},
+    {type:"range",integer:true,key:"stroke",label:"線の太さ",unit:"%",min:1,max:40,step:1,value:18,stops:[1,5,10,18,25,40],tol:1},
+    {type:"range",integer:true,key:"sides",label:"辺の数",min:3,max:12,step:1,value:6,stops:[3,4,5,6,8,12],tol:0},
+    {type:"range",integer:true,key:"inner",label:"内側",unit:"%",min:10,max:90,step:1,value:45,stops:[25,38,50,75],tol:1}
+  ],(v,key)=>{
+    if(key===null)return;
+    const sh=S.shapes[selIdx];if(!sh)return;
+    sh[key]=key==="line"?!!v.line:v[key];
+    currentPreset=-1;syncPresets();syncShapeList();syncAdjVis();draw();commit();
+  },{fireOnInit:false});
+  adjRows=[...mount.children];   // 順番 = w, h, angle, round, line, stroke, sides, inner
+})();
+
+/* ルール（表示・図形・向き・倍率・色・横のずれ・縦のずれ）。各ルールに: パターン・並び順／そのルールだけの項目（刻み・最小最大・色の数・ずれ）／重ねる（2本目）／範囲 */
+const SPEC_HTML={
+  orient:`<div class="rul-line spec">
+      <span class="rul-arg"><label>刻み</label><select class="sp" data-k="step" aria-label="向きの刻み">${STEP_OPTS.map(v=>`<option value="${v}">${v}°</option>`).join("")}</select></span>
+      <label class="sk-row sk-checkrow"><input type="checkbox" class="sp" data-k="mirror" aria-label="反転を含む"><span>反転を含む</span></label></div>`,
+  scale:`<div class="rul-line spec">
+      <span class="rul-arg"><label>最小</label><input class="sp" data-k="min" data-lo="5" data-hi="200" type="number" step="1" aria-label="倍率の最小（%）"><label>%</label></span>
+      <span class="rul-arg"><label>最大</label><input class="sp" data-k="max" data-lo="5" data-hi="200" type="number" step="1" aria-label="倍率の最大（%）"><label>%</label></span>
+      <span class="rul-arg"><label>段数</label><input class="sp" data-k="steps" data-lo="2" data-hi="10" type="number" step="1" aria-label="倍率の段数"></span></div>`,
+  fill:`<div class="rul-line spec">
+      <span class="rul-arg"><label>色の数</label><select class="sp" data-k="count" aria-label="色の数">${[2,3,4].map(v=>`<option value="${v}">${v}色</option>`).join("")}</select></span></div>`,
+  shift:`<div class="rul-line spec">
+      <span class="rul-arg"><label>段数</label><input class="sp" data-k="steps" data-lo="2" data-hi="9" type="number" step="1" aria-label="ずれの段数"></span>
+      <span class="rul-arg"><label>最大のずれ</label><input class="sp" data-k="amount" data-lo="0" data-hi="100" type="number" step="1" aria-label="最大のずれ（マスに対する%）"><label>%</label></span></div>`
+};
+SPEC_HTML.dx=SPEC_HTML.dy=SPEC_HTML.shift;
+/* パターン1本ぶんの欄（1本目と2本目で同じ形）。p = クラスの接頭辞（"" か "x-"） */
+const patOpts=()=>{   // 並び順で数えるパターンと、場所（行・列・中心からの距離）で決まるパターンに分ける
+  const keys=Object.keys(PATTERN),opt=k=>`<option value="${k}">${PATTERN[k].n}</option>`;
+  return`<optgroup label="並び順で数える">${keys.filter(k=>!PATTERN[k].cell).map(opt).join("")}</optgroup>`+
+    `<optgroup label="場所で決まる">${keys.filter(k=>PATTERN[k].cell).map(opt).join("")}</optgroup>`;
+};
+const patLines=(R,p,label)=>`
+         <div class="rul-line">
+           <select class="${p}pattern" aria-label="${R.n}の${label}パターン">${patOpts()}</select>
+           <span class="rul-arg ${p}argA"><label></label><input class="${p}pa" type="number" step="1"></span>
+           <span class="rul-arg ${p}argB"><label></label><input class="${p}pb" type="number" step="1"></span>
+           <span class="rul-arg start ${p}argS"><label>開始</label><input class="${p}ps" type="number" step="1" min="0" max="999" aria-label="${R.n}の${label}数え始めの位置（開始）"></span>
+         </div>
+         <div class="rul-line ${p}orderLine">
+           <select class="${p}order" aria-label="${R.n}の${label}並び順">${Object.keys(ORDER).map(k=>`<option value="${k}">${ORDER[k].n}</option>`).join("")}</select>
+           <span class="${p}thumb rul-thumb"></span>
+           <button type="button" class="sk-mini rul-eye ${p}eye" aria-pressed="false" title="この並び順を赤い線で重ねて表示する（書き出しには入らない）">線で表示</button>
+         </div>`;
+(function(){
+  const g=makeGroup("ルール"),box=document.createElement("div");box.id="rules";
+  for(const R of RULES){
+    const el=document.createElement("div");
+    el.className="rul";el.dataset.id=R.id;
+    el.innerHTML=
+      `<div class="rul-head">
+         <label class="sk-row sk-checkrow"><input type="checkbox" class="use" aria-label="${R.n}のルールを使う"><span>${R.n}</span></label>
+         <span class="steps"></span>
+       </div>
+       <div class="rul-band" title="先頭48マスの値"></div>
+       <div class="rul-body">${patLines(R,"","")}
+         ${SPEC_HTML[R.id]||""}
+         <button type="button" class="sk-mini rul-add exAdd" title="もう1本パターンを重ねる">重ねる</button>
+         <div class="rul-ex exBox" hidden>
+           <div class="rul-line">
+             <span class="rul-arg"><label>重ね方</label></span>
+             <select class="x-op" aria-label="${R.n}の重ね方">${OPS.map(o=>`<option value="${o.k}">${o.n}</option>`).join("")}</select>
+             <button type="button" class="sk-mini exDel" title="重ねたパターンを外す">外す</button>
+           </div>${patLines(R,"x-","2本目の")}
+         </div>
+         <div class="rul-line">
+           <span class="rul-arg"><label>範囲</label></span>
+           <select class="ar-type" aria-label="${R.n}の範囲">${AREAS.map(a=>`<option value="${a.k}">${a.n}</option>`).join("")}</select>
+         </div>
+         <div class="rul-line arSize">
+           <span class="rul-arg"><label>大きさ</label><input class="ar-size" type="number" step="1" min="5" max="100" aria-label="${R.n}の範囲の大きさ（グリッド全体に対する%）"><label>%</label></span>
+         </div>
+       </div>`;
+    box.appendChild(el);
+    const q=s=>el.querySelector(s), w=()=>S.rules[R.id];
+    const touch=()=>{currentPreset=-1;syncPresets();};
+    q(".use").onchange=e=>{w().off=!e.target.checked;currentPreset=-1;syncAll();draw();commitNow();};
+    /* 1本目(p="")と2本目(p="x-")で同じ配線 */
+    for(const p of ["","x-"]){
+      const o=()=>p?w().extra:w();
+      q("."+p+"pattern").onchange=e=>{const pt=PATTERN[e.target.value];
+        o().pattern=e.target.value;o().a=pt.d[0];o().b=pt.d[1];currentPreset=-1;syncAll();draw();commitNow();};
+      q("."+p+"pa").oninput=e=>{o().a=argRead(o().pattern,e.target.value);touch();draw();commit();};
+      q("."+p+"pa").onchange=e=>{e.target.value=argShow(o().pattern,o().a);};   // 交互は 2 のべき乗に丸めた値を見せる
+      q("."+p+"ps").oninput=e=>{const n=Math.round(+e.target.value);if(!isFinite(n)||e.target.value==="")return;
+        o().start=clamp(n,0,999);touch();draw();commit();};
+      q("."+p+"ps").onchange=e=>{e.target.value=o().start||0;};
+      q("."+p+"pb").oninput=e=>{o().b=+e.target.value||0;touch();draw();commit();};
+      q("."+p+"order").onchange=e=>{o().order=e.target.value;currentPreset=-1;syncAll();draw();commitNow();};
+      q("."+p+"eye").onclick=()=>{const k=p?R.id+":x":R.id;showOrder=showOrder===k?null:k;syncAll();draw();};
+    }
+    q(".x-op").onchange=e=>{w().extra.op=e.target.value;currentPreset=-1;syncAll();draw();commitNow();};
+    q(".exAdd").onclick=()=>{w().extra=defaultExtra();currentPreset=-1;syncAll();draw();commitNow();};
+    q(".exDel").onclick=()=>{w().extra=null;if(showOrder===R.id+":x")showOrder=null;currentPreset=-1;syncAll();draw();commitNow();};
+    q(".ar-type").onchange=e=>{w().area.type=e.target.value;currentPreset=-1;syncAll();draw();commitNow();};
+    q(".ar-size").oninput=e=>{const n=Math.round(+e.target.value);if(!isFinite(n)||e.target.value==="")return;
+      w().area.size=clamp(n,5,100);touch();draw();commit();};
+    q(".ar-size").onchange=e=>{e.target.value=w().area.size;};
+    el.querySelectorAll(".sp").forEach(inp=>{   // そのルールだけの項目（刻み・反転を含む・最小・最大・段数・色の数・最大のずれ）
+      const k=inp.dataset.k,lo=+inp.dataset.lo,hi=+inp.dataset.hi;
+      if(inp.type==="checkbox")inp.onchange=()=>{w()[k]=inp.checked;currentPreset=-1;syncAll();draw();commitNow();};
+      else if(inp.tagName==="SELECT")inp.onchange=()=>{w()[k]=+inp.value;currentPreset=-1;syncAll();draw();commitNow();};
+      else{
+        inp.oninput=()=>{const n=Math.round(+inp.value);if(!isFinite(n)||inp.value==="")return;
+          w()[k]=clamp(n,lo,hi);touch();syncRuleSteps();syncHand();draw();commit();};
+        inp.onchange=()=>{inp.value=ruleOf(S,R.id)[k];};
+      }
+    });
+  }
+  g.appendChild(box);
+})();
+
+/* グリッド: 形・列の数・行の数・間隔・ずらし量・下向きを反転・列の幅・行の高さ・マスに合わせて伸ばす・グリッド線（Studio.panel。数値の作法は §5） */
+const values=Studio.panel("#panel",[
+  {type:"group",label:"グリッド"},
+  {type:"toggle",key:"grid",label:"形",value:S.grid,options:GRIDS.map(g=>({value:g.k,label:g.n}))},
+  {type:"range",integer:true,key:"cols",label:"列の数",unit:"列",min:2,max:64,step:1,value:S.cols,stops:[2,4,8,12,16,20,24,32,40,48,64],tol:1},
+  {type:"range",integer:true,key:"rows",label:"行の数",unit:"行",min:2,max:64,step:1,value:S.rows,stops:[2,4,8,12,16,20,24,32,40,48,64],tol:1},
+  {type:"range",integer:true,key:"gap",label:"間隔",unit:"%",min:-25,max:45,step:1,value:S.gap,stops:[-20,-10,0,10,20,25,33,45],tol:1},
+  {type:"range",integer:true,key:"shift",label:"ずらし量",unit:"%",min:0,max:100,step:1,value:S.shift,stops:[0,25,50,75,100],tol:1},
+  {type:"checkbox",key:"flipDown",label:"下向きを反転",value:S.flipDown},
+  {type:"checkbox",key:"stretch",label:"マスに合わせて伸ばす",value:S.stretch},
+  {type:"checkbox",key:"showGrid",label:"グリッド線を表示",value:S.showGrid},
+  {type:"toggle",key:"sym",label:"対称",value:symType(S),options:SYMS.map(x=>({value:x.k,label:x.n}))}
+],(v,key)=>{
+  if(key===null)return;
+  const flag=key==="showGrid"||key==="flipDown"||key==="stretch";
+  if(key==="sym")S.sym={type:v.sym};
+  else S[key]=flag?!!v[key]:v[key];
+  if(key!=="showGrid"){currentPreset=-1;syncPresets();}
+  syncGridUI();draw();
+  if(key==="grid"||key==="sym"||flag)commitNow();else commit();
+});
+/* 列の幅・行の高さの規則（既存のルール行と同じ見た目。並び順は無い = 列番号・行番号で数える）を「間隔」の下に差し込む */
+const gridGrp=document.querySelector("#panel .sk-grp:last-child");
+const gRows={};   // 行を出し入れする要素（形によって隠す）
+(function(){
+  const ch=[...gridGrp.children];   // 0 見出し／1 形／2 列の数／3 行の数／4 間隔／5 ずらし量／6 下向きを反転／7 伸ばす／8 グリッド線
+  gRows.shift=ch[5];gRows.flip=ch[6];gRows.stretch=ch[7];
+  const keys=sizePatternKeys(),wrap=document.createElement("div");wrap.id="sizeRules";
+  const defs=[{key:"colSize",n:"列の幅"},{key:"rowSize",n:"行の高さ"}];
+  for(const D of defs){
+    const el=document.createElement("div");
+    el.className="rul";el.dataset.sz=D.key;
+    el.innerHTML=
+      `<div class="rul-head">
+         <label class="sk-row sk-checkrow"><input type="checkbox" class="use" aria-label="${D.n}を規則で変える"><span>${D.n}</span></label>
+         <span class="steps"></span>
+       </div>
+       <div class="rul-body">
+         <div class="rul-line">
+           <select class="pattern" aria-label="${D.n}のパターン">${keys.map(k=>`<option value="${k}">${PATTERN[k].n}</option>`).join("")}</select>
+           <span class="rul-arg argA"><label></label><input class="pa" type="number" step="1"></span>
+           <span class="rul-arg argB"><label></label><input class="pb" type="number" step="1"></span>
+         </div>
+         <div class="rul-line">
+           <span class="rul-arg"><label>最小</label><input class="pm" type="number" step="1" min="10" max="100" aria-label="${D.n}の最小（%）"><label>%</label></span>
+         </div>
+       </div>`;
+    wrap.appendChild(el);
+    const q=x=>el.querySelector(x), w=()=>S[D.key];
+    q(".use").onchange=e=>{w().off=!e.target.checked;currentPreset=-1;syncAll();draw();commitNow();};
+    q(".pattern").onchange=e=>{const p=PATTERN[e.target.value];
+      w().pattern=e.target.value;w().a=p.d[0];w().b=p.d[1];currentPreset=-1;syncAll();draw();commitNow();};
+    q(".pa").oninput=e=>{w().a=argRead(w().pattern,e.target.value);currentPreset=-1;syncPresets();syncGridUI();draw();commit();};
+    q(".pa").onchange=e=>{e.target.value=argShow(w().pattern,w().a);};
+    q(".pb").oninput=e=>{w().b=+e.target.value||0;currentPreset=-1;syncPresets();syncGridUI();draw();commit();};
+    q(".pm").oninput=e=>{const n=Math.round(+e.target.value);if(!isFinite(n)||e.target.value==="")return;
+      w().min=clamp(n,10,100);currentPreset=-1;syncPresets();draw();commit();};
+    q(".pm").onchange=e=>{e.target.value=w().min;};
+    gRows[D.key]=el;
+  }
+  gridGrp.insertBefore(wrap,ch[7]);
+  gRows.size=wrap;
+  gridGrp.querySelector('.sk-seg button[data-val="lrtb"]').parentElement.classList.add("sk-wrap");   // 対称の 5 つは 1 行に収まらないので 3 つ＋2 つの 2 行に折り返す
+})();
+
+/* 手で直す: 項目・値を選んで「直す」を ON にし、版面のマスをクリック・ドラッグすると、そのマスだけ値を上書きする */
+const HF_ITEMS=RULES;   // 表示・図形・向き・倍率・色・横のずれ・縦のずれ
+(function(){
+  const g=makeGroup("手で直す");
+  g.insertAdjacentHTML("beforeend",
+    `<div class="hf-line"><label for="hfItem">項目</label><select id="hfItem" aria-label="手で直す項目">${HF_ITEMS.map(R=>`<option value="${R.id}">${R.n}</option>`).join("")}</select></div>
+     <div class="hf-line"><label for="hfVal">値</label><select id="hfVal" aria-label="手で直すときに入れる値"></select></div>
+     <div class="pa-row">
+       <button type="button" class="sk-btn" id="hfToggle" aria-pressed="false" title="ON のあいだ、版面のマスをクリック・ドラッグすると値を入れる。⌥クリックでそのマスの上書きを消す">直す</button>
+       <button type="button" class="sk-btn" id="hfClear" title="選んだ項目の上書きを全部消す">全部消す</button>
+     </div>`);
+  $("hfItem").onchange=e=>{hfItem=e.target.value;hfVal=null;syncHand();};
+  $("hfVal").onchange=e=>{hfVal=+e.target.value;};
+  $("hfToggle").onclick=()=>setEdit(!editMode);
+  $("hfClear").onclick=()=>{
+    const n=clearOverrides(S,hfItem);
+    if(!n){toast(RULES.find(r=>r.id===hfItem).n+"に手で直したマスはありません");return;}
+    currentPreset=-1;syncPresets();syncHand();draw();commitNow();
+    toast(RULES.find(r=>r.id===hfItem).n+"の上書きを"+n+"マスぶん消しました");
+  };
+})();
+function setEdit(on){
+  editMode=!!on;
+  $("hfToggle").setAttribute("aria-pressed",String(editMode));
+  $("drawing").classList.toggle("editing",editMode);
+  syncHand();
+}
+/* 項目に合わせて値の選択肢を作り直す。直す ON/OFF はボタンの押された見た目だけで示す。「全部消す」は上書きが無いと押せない */
+function syncHand(){
+  const sel=$("hfVal"),opts=valueOptions(S,hfItem);
+  sel.innerHTML=opts.map(o=>`<option value="${o.v}">${o.label}</option>`).join("");
+  if(!opts.some(o=>o.v===hfVal))hfVal=opts[0].v;
+  sel.value=String(hfVal);
+  $("hfItem").value=hfItem;
+  $("hfClear").disabled=overrideCount(S,hfItem)===0;
+}
+/* 版面のマスの当たり判定: 画面の座標 → 最後に描いた配置のマス（各マスの輪郭に対する点の内外判定） */
+let stroke=null;   // ドラッグ中の状態 {L, erase, p（前回のポインタ位置）, changed}
+function eventPoint(e){   // 画面の座標 → グリッドの座標（layoutGrid と同じ原点）
+  const svg=$("drawing"),m=svg.getScreenCTM();if(!m||!lastGeom)return null;
+  const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const p=pt.matrixTransform(m.inverse());
+  return{x:p.x-lastGeom.ox,y:p.y-lastGeom.oy};
+}
+/* 前回の位置から今回の位置までの線分が通ったマスを、飛ばさずに全部上書きする（cellsAlong はマスの 1/4 以下の間隔で調べる） */
+function paintAt(e){
+  const p=eventPoint(e);if(!p)return;
+  const cells=stroke.p?cellsAlong(stroke.L,stroke.p.x,stroke.p.y,p.x,p.y):[cellAt(stroke.L,p.x,p.y)].filter(Boolean);
+  stroke.p=p;
+  let any=false;
+  for(const cl of cells){
+    const changed=stroke.erase?clearOverride(S,hfItem,cl.r,cl.c):setOverride(S,hfItem,cl.r,cl.c,hfVal);
+    if(changed)any=true;
+  }
+  if(any){stroke.changed=true;currentPreset=-1;syncPresets();syncHand();draw();}
+}
+(function(){
+  const svg=$("drawing");
+  svg.addEventListener("pointerdown",e=>{
+    if(!editMode||candOpen||e.button!==0)return;   // 候補のシートを開いているあいだは手で直さない
+    e.preventDefault();
+    try{svg.setPointerCapture(e.pointerId);}catch(_){}
+    if(histTimer!==null)commitNow();
+    stroke={L:layoutGrid(S,lastGeom?lastGeom.u:UNIT),erase:e.altKey,p:null,changed:false};   // ⌥クリック = そのマスの上書きを消す
+    paintAt(e);
+  });
+  svg.addEventListener("pointermove",e=>{if(stroke)paintAt(e);});
+  const end=()=>{if(!stroke)return;const ch=stroke.changed;stroke=null;if(ch)commitNow();};   // ドラッグ1回で取り消し1段
+  svg.addEventListener("pointerup",end);svg.addEventListener("pointercancel",end);
+})();
+
+/* ============ 数値と段階の対応を見せる帯（画面だけ・書き出さない） ============ */
+/* 先頭48マスの値を、段の数で白〜黒の灰色に塗り分けた小さな四角の列。作品の色は使わない */
+function bandSVG(b){
+  const n=b.values.length,mx=Math.max(1,b.steps-1);
+  const rects=b.values.map((v,i)=>{const g=Math.round(255*(1-Math.min(1,Math.max(0,v)/mx)));
+    return`<rect x="${i}" y="0" width="1" height="1" fill="rgb(${g},${g},${g})"/>`;}).join("");
+  return`<svg viewBox="0 0 ${n} 1" preserveAspectRatio="none" shape-rendering="crispEdges" aria-hidden="true">${rects}</svg>`;
+}
+const BAND_TITLE={order:"先頭48マスの値",rows:"1列目の行ごとの値",firstRow:"1行目の列ごとの値",midRow:"中央の行の列ごとの値"};
+function syncBands(){
+  for(const R of RULES){
+    const el=document.querySelector('.rul[data-id="'+R.id+'"] .rul-band'),b=bandOf(S,R.id,48);
+    if(!b){el.innerHTML="";continue;}
+    el.innerHTML=bandSVG(b);el.title=BAND_TITLE[b.kind];
+  }
+}
+
+/* ============ 同期 ============ */
+function syncPresets(){[...$("presets").children].forEach((c,i)=>c.setAttribute("aria-pressed",String(i===currentPreset)));}
+/* 使う図形の一覧（見本・名前・順番ボタン）を描き直す */
+function syncShapeList(){
+  const n=S.shapes.length;
+  $("shpList").innerHTML=S.shapes.map((sh,i)=>{
+    const nm=typeName(sh);
+    return`<div class="shp-row" role="listitem" data-i="${i}">
+      <button type="button" class="shp-pick" aria-pressed="${i===selIdx}" title="${nm}を選んで調整する">
+        <span class="shp-no">${i+1}</span><span class="shp-th">${thumbSVG(sh)}</span><span class="shp-nm">${nm}</span></button>
+      <button type="button" class="sk-mini shp-up" aria-label="${nm}を1つ前へ" title="1つ前へ（図形ルールの段が前になる）"${i===0?" disabled":""}>↑</button>
+      <button type="button" class="sk-mini shp-dn" aria-label="${nm}を1つ後ろへ" title="1つ後ろへ（図形ルールの段が後ろになる）"${i===n-1?" disabled":""}>↓</button>
+      <button type="button" class="sk-mini shp-x" aria-label="${nm}を外す" title="${n===1?"最後の1つは外せません":"一覧から外す"}"${n===1?" disabled":""}>×</button>
+    </div>`;}).join("");
+}
+/* 一覧・＋図形の格子・選んだ図形の調整（意味の無い項目は隠す）を今の状態に合わせる */
+function syncShapes(){
+  selIdx=clamp(selIdx,0,S.shapes.length-1);
+  syncShapeList();
+  $("shpMenu").hidden=!menuOpen;
+  $("shpAdd").setAttribute("aria-expanded",String(menuOpen));
+  const sh=S.shapes[selIdx];
+  ["w","h","angle","round","stroke","sides","inner"].forEach(k=>ADJ.set(k,sh[k]));
+  ADJ.set("line",sh.line);
+  syncAdjVis();
+}
+/* 選んだ図形で意味の無い項目は隠す（無効表示にしない） */
+function syncAdjVis(){
+  const sh=S.shapes[selIdx];if(!sh)return;
+  const star=sh.type==="star",poly=sh.type==="polygon"||star;
+  const show=[true,true,true,canRound(sh.type),!alwaysLine(sh.type),alwaysLine(sh.type)||sh.line,poly,star];
+  adjRows.forEach((row,i)=>{row.style.display=show[i]?"":"none";});
+}
+function syncAll(){
+  syncPresets();
+  syncShapes();
+  for(const R of RULES){
+    const w=S.rules[R.id],el=document.querySelector('.rul[data-id="'+R.id+'"]'),q=x=>el.querySelector(x);
+    el.classList.toggle("off",w.off);
+    q(".use").checked=!w.off;
+    q(".steps").textContent=w.off?"":R.steps(S,w)+"段階";
+    /* 1本目(p="")・2本目(p="x-") */
+    for(const p of ["","x-"]){
+      const o=p?w.extra:w; if(!o)continue;
+      const pt=PATTERN[o.pattern];
+      q("."+p+"pattern").value=o.pattern;q("."+p+"order").value=o.order;
+      q("."+p+"pa").value=argShow(o.pattern,o.a);q("."+p+"pb").value=o.b;q("."+p+"ps").value=o.start||0;
+      q("."+p+"argS").style.display=pt.cell?"none":"";   // 開始は並び順で数えるパターンだけ
+      q("."+p+"argA").style.display=pt.a?"":"none";q("."+p+"argA label").textContent=pt.a||"";
+      q("."+p+"argB").style.display=pt.b?"":"none";q("."+p+"argB label").textContent=pt.b||"";
+      q("."+p+"orderLine").style.display=pt.cell?"none":"";
+      q("."+p+"thumb").innerHTML=pt.cell?"":orderThumb(o.order);
+      const eye=q("."+p+"eye"),key=p?R.id+":x":R.id;
+      eye.setAttribute("aria-pressed",String(showOrder===key));
+      eye.disabled=w.off||!!pt.cell;
+    }
+    q(".exAdd").hidden=!!w.extra;q(".exBox").hidden=!w.extra;
+    if(w.extra)q(".x-op").value=w.extra.op;
+    q(".ar-type").value=w.area.type;
+    q(".ar-size").value=w.area.size;
+    q(".arSize").hidden=!AREAS.find(a=>a.k===w.area.type).size;   // 大きさは円・四角のときだけ（半分の4種では出さない）
+    el.querySelectorAll(".sp").forEach(inp=>{const v=w[inp.dataset.k];
+      if(inp.type==="checkbox")inp.checked=!!v;else inp.value=v;});
+  }
+  values.set("grid",S.grid);values.set("cols",S.cols);values.set("rows",S.rows);values.set("gap",S.gap);values.set("shift",S.shift);
+  values.set("flipDown",S.flipDown);values.set("stretch",S.stretch);values.set("showGrid",S.showGrid);values.set("sym",symType(S));
+  for(const key of ["colSize","rowSize"]){
+    const w=S[key],p=PATTERN[w.pattern],el=gRows[key],q=x=>el.querySelector(x);
+    el.classList.toggle("off",w.off);
+    q(".use").checked=!w.off;
+    q(".steps").textContent=w.off?"":sizeSteps(w,key==="colSize"?S.cols:S.rows)+"段階";
+    q(".pattern").value=w.pattern;
+    q(".pa").value=argShow(w.pattern,w.a);q(".pb").value=w.b;q(".pm").value=w.min;
+    q(".argA").style.display=p.a?"":"none";q(".argA label").textContent=p.a||"";
+    q(".argB").style.display=p.b?"":"none";q(".argB label").textContent=p.b||"";
+  }
+  syncGridUI();
+  ["ink1","ink2","ink3","ink4","bg"].forEach(k=>sb.colors.set(k,S[k]));
+  syncBarColors();
+  syncHand();
+}
+/* 各ルールの「N段階」だけ更新（入力中に欄を作り直さない） */
+function syncRuleSteps(){
+  for(const R of RULES){const w=S.rules[R.id];
+    document.querySelector('.rul[data-id="'+R.id+'"] .steps').textContent=w.off?"":R.steps(S,w)+"段階";}
+}
+/* 上部バーの色見本は、使う色の数だけ（1色目〜N色目＋背景）。使っていない色見本は隠す */
+function barKeys(){const n=colorCount(S),k=[];for(let i=1;i<=n;i++)k.push("ink"+i);k.push("bg");return k;}
+function syncBarColors(){
+  const n=colorCount(S);
+  [...sb.colors.el.querySelectorAll(".cswatch")].forEach((b,i)=>{b.hidden=i<4&&i>=n;});   // 順番 = 1色目〜4色目・背景
+  if(!barKeys().includes(sb.colors.getTarget()))sb.colors.setTarget("ink1");
+}
+/* 形に合わない欄は隠す（無効表示にしない）。ずらし量は行ずらしだけ・下向きを反転は三角だけ・列の幅と行の高さは四角と行ずらしだけ */
+function syncGridUI(){
+  const kind=gridKind(S),sz=sizeable(kind);
+  gRows.shift.style.display=kind==="brick"?"":"none";
+  gRows.flip.style.display=kind==="tri"?"":"none";
+  gRows.size.style.display=sz?"":"none";
+  gRows.stretch.style.display=(sz&&(!S.colSize.off||!S.rowSize.off))?"":"none";
+  gridGrp.querySelector(".sk-seg").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.val===kind)));   // 先頭の「形」だけ（対称の選択は別）
+  for(const key of ["colSize","rowSize"]){   // 段数は列の数・行の数・引数で変わる
+    const w=S[key];gRows[key].querySelector(".steps").textContent=w.off?"":sizeSteps(w,key==="colSize"?S.cols:S.rows)+"段階";}
+}
+
+/* ============ 操作 ============ */
+function applyPreset(i){
+  const p=PRESETS[i];
+  S.cols=p.cols;S.rows=p.rows;S.gap=0;S.shapes=presetShapes(p);S.rules=present(clone(p.w));S.overrides={};   // 重ね・範囲・手で直した値も既定に戻る
+  const d=initState();   // 形・ずらし量・対称はプリセットが持つもの（省くと 四角・50・なし）。下向きの反転・列の幅・行の高さは初期値へ
+  S.grid=presetGrid(p);S.shift=presetShift(p);S.sym=presetSym(p);S.flipDown=d.flipDown;S.stretch=d.stretch;S.colSize=d.colSize;S.rowSize=d.rowSize;
+  selIdx=0;currentPreset=i;showOrder=null;syncAll();draw();commitNow();
+}
+/* --- 使う図形の操作（すべて取り消せる） --- */
+function addShape(sh){
+  if(!sh){toast("図形を追加できませんでした",{kind:"error",sticky:true});return false;}
+  if(S.shapes.length>=MAX_SHAPES){toast("図形は"+MAX_SHAPES+"個までです。不要な図形を外してから追加してください",{kind:"error",sticky:true});return false;}
+  addShapeToState(S,sh);selIdx=S.shapes.length-1;menuOpen=false;   // 図形ルールが くり返し・往復 なら周期も図形の数に合わせる
+  currentPreset=-1;syncAll();draw();commitNow();return true;
+}
+function moveShape(i,d){
+  const j=moveShapeInState(S,i,d);if(j<0)return;
+  selIdx=j;currentPreset=-1;syncAll();draw();commitNow();
+}
+function removeShape(i){
+  if(!removeShapeFromState(S,i))return;
+  if(i<selIdx)selIdx--;
+  currentPreset=-1;syncAll();draw();commitNow();
+}
+/* SVG の文字列（貼り付け・テキスト欄・ファイルのドロップ）を貼った図形として末尾に追加する */
+function addCustomFromSVG(text){
+  text=String(text||"").trim();
+  if(!text){toast("SVGの文字列を貼ってから「追加」を押してください",{kind:"error",sticky:true});return false;}
+  if(/^[Mm]\s*[-+.\d]/.test(text)&&/^[\sMmLlHhVvCcSsQqTtAaZz\d.,eE+-]+$/.test(text))
+    text='<svg xmlns="http://www.w3.org/2000/svg"><path d="'+text+'"/></svg>';   // パスデータだけも読む
+  let ext;
+  try{ext=SvgParse.extractShapes(text);}catch(e){toast("SVGを読めませんでした",{kind:"error",sticky:true});return false;}
+  const r=customFromShapes(ext.shapes);
+  if(r.error){toast(r.error,{kind:"error",sticky:true});return false;}
+  const sh=makeShape("custom",{custom:r.custom});
+  if(!addShape(sh))return false;
+  toast("貼った図形を追加しました");return true;
+}
+function resetAll(){
+  S=initState();selIdx=0;menuOpen=false;currentPreset=-1;showOrder=null;syncAll();draw();commitNow();
+  toast("最初の形に戻しました");
+}
+let lastKind=null;   // 直前のランダムの型（続けて同じ系統にしない）
+/* ランダム: 図形・規則・グリッド・対称をまとめて変える。作り方は core.js の randomPick（型を引いてから引数を揺らす・薄い結果は作り直す）。色・間隔・グリッド線は変えない */
+function shuffleAll(){
+  const r=randomPick(Math.random,lastKind),N=r.S;lastKind=r.kind;
+  S.shapes=N.shapes;selIdx=0;S.rules=N.rules;
+  S.overrides={};   // 手で直した内容はランダムで消す
+  S.cols=N.cols;S.rows=N.rows;S.grid=N.grid;S.shift=N.shift;S.flipDown=N.flipDown;S.stretch=N.stretch;
+  S.colSize=N.colSize;S.rowSize=N.rowSize;S.sym=N.sym;
+  currentPreset=-1;showOrder=null;syncAll();draw();commitNow();
+}
+
+/* ============ 候補（ランダムを 8 つ並べて見比べる・画面だけの状態。S・URL・封筒には入れない） ============ */
+const candState=e=>candidateState(S,e,candLocks);
+function candThumb(e){
+  const st=candState(e),r=render(st,{x:0,y:0,w:1000,h:1000},{margin:0.05});
+  return{shapes:r.shapes,bg:(st.bg&&st.bg!=="none")?st.bg:"#FFFFFF"};
+}
+/* 8枚の見本を描き直す（選択・残すの状態も反映。フォーカスは動かさない） */
+function paintCand(){
+  const grid=$("candGrid");if(!cands)return;
+  if(grid.children.length!==cands.length){
+    grid.innerHTML=cands.map((e,i)=>`<div class="cand-card" role="option" data-i="${i}" aria-selected="false" aria-label="候補 ${i+1}" tabindex="-1">
+      <svg viewBox="0 0 1000 1000" xmlns="${NSU}" aria-hidden="true"></svg><span class="no">${i+1}</span><button type="button" class="sk-mini keep" aria-pressed="false" title="残すを入れると、撒き直しでもこの候補は変わらない">残す</button></div>`).join("");
+  }
+  [...grid.children].forEach((el,i)=>{
+    const e=cands[i],t=candThumb(e);
+    el.firstElementChild.innerHTML=t.shapes;el.style.background=t.bg;
+  });
+  paintCandMarks();
+}
+/* 選択・残す・「版面へ」の有効だけ更新（見本は描き直さない） */
+function paintCandMarks(){
+  [...$("candGrid").children].forEach((el,i)=>{
+    el.setAttribute("aria-selected",String(i===candSel));el.tabIndex=(i===candSel||(candSel<0&&i===0))?0:-1;
+    el.querySelector(".keep").setAttribute("aria-pressed",String(!!cands[i].pinned));
+  });
+  $("candApply").disabled=candSel<0;
+}
+function selectCand(i,focus){
+  candSel=cands&&i>=0&&i<cands.length?i:-1;paintCandMarks();
+  if(focus&&candSel>=0)$("candGrid").children[candSel].focus();
+}
+function moveCand(dc,dr){   // 4列×2行。選択が無ければ 1 枚目
+  if(!candOpen)return;
+  if(candSel<0){selectCand(0,true);return;}
+  const c=candSel%4+dc,r=((candSel/4)|0)+dr;
+  if(c<0||c>3||r<0||r>1)return;
+  selectCand(r*4+c,true);
+}
+function openCand(){
+  if(editMode)setEdit(false);   // シートを開いているあいだは手で直さない
+  if(!cands)cands=makeCandidates(Math.random,null,lastKind);
+  candOpen=true;$("cand").hidden=false;$("candBtn").setAttribute("aria-pressed","true");
+  if(!candKeys)candKeys=Studio.keys({extra:{   // 開いているあいだだけ矢印・Enter を受ける（閉じたら外す＝パネルの矢印スクロールを奪わない）
+    arrowleft:()=>moveCand(-1,0),arrowright:()=>moveCand(1,0),arrowup:()=>moveCand(0,-1),arrowdown:()=>moveCand(0,1),
+    enter:()=>{const a=document.activeElement;
+      if(a&&a.tagName==="BUTTON"){a.click();return;}   // ボタンの上の Enter はボタンの操作
+      if(candSel>=0)applyCand(candSel);}
+  }});
+  paintCand();
+  const t=$("candGrid").querySelector('[tabindex="0"]');if(t)t.focus({preventScroll:true});
+}
+function closeCand(){
+  candOpen=false;$("cand").hidden=true;$("candBtn").setAttribute("aria-pressed","false");
+  if(candKeys){candKeys.destroy();candKeys=null;}
+  if(document.activeElement&&$("cand").contains(document.activeElement))document.activeElement.blur();
+}
+/* 撒き直す: 残す以外の枚を作り直す。選んでいた枚が作り直されたら選択は外す */
+function rerollCand(){
+  const prev=cands;
+  cands=makeCandidates(Math.random,prev,lastKind);
+  if(candSel>=0&&cands[candSel]!==prev[candSel])candSel=-1;
+  paintCand();
+}
+function applyCand(i){
+  const e=cands&&cands[i];if(!e)return;
+  if(histTimer!==null)commitNow();
+  S=candState(e);lastKind=e.kind;selIdx=0;menuOpen=false;currentPreset=-1;showOrder=null;
+  closeCand();syncAll();draw();commitNow();
+  toast("候補 "+(i+1)+" を版面に入れました");
+}
+(function(){
+  const grid=$("candGrid");
+  grid.addEventListener("click",e=>{
+    const card=e.target.closest(".cand-card");if(!card)return;
+    const i=+card.dataset.i;
+    if(e.target.closest(".keep")){cands[i].pinned=!cands[i].pinned;paintCandMarks();return;}
+    selectCand(i,true);
+  });
+  grid.addEventListener("dblclick",e=>{
+    const card=e.target.closest(".cand-card");if(!card||e.target.closest(".keep"))return;
+    applyCand(+card.dataset.i);
+  });
+  $("candReroll").onclick=rerollCand;
+  $("candClose").onclick=closeCand;
+  $("candApply").onclick=()=>{if(candSel>=0)applyCand(candSel);};
+  [["lkGrid","grid"],["lkShapes","shapes"],["lkColor","color"]].forEach(([id,k])=>{
+    $(id).checked=candLocks[k];
+    $(id).onchange=e=>{candLocks[k]=e.target.checked;paintCand();};
+  });
+})();
+
+/* ============ 状態の保存（URLのハッシュ）と、書き出したSVGからの復元（§1） ============ */
+function saveHash(){
+  try{history.replaceState(null,"","#"+encodeURIComponent(JSON.stringify(S)));}catch(e){}
+}
+function loadHash(){
+  if(!location.hash||location.hash.length<3)return false;
+  try{const s=sanitize(JSON.parse(decodeURIComponent(location.hash.slice(1))));if(!s)return false;S=s;return true;}
+  catch(e){return false;}
+}
+/* paramsVersion 1（図形が番号）も 2 も読む。kit の prepareRestore は版違いを migrate に回す */
+const restoreContract={
+  tool:TOOL,toolVersion:TOOL_VERSION,paramsVersion:PARAMS_VERSION,
+  legacy:{toolVersion:"2.0.0",paramsVersion:1},
+  migrate:env=>{
+    if(env.paramsVersion!==1&&env.paramsVersion!==2)throw new Error("このツールでは復元できない設定の版です");
+    const params=sanitize(env.params);
+    if(!params)throw new Error("グリッドの設定が不正です");
+    return Object.assign({},env,{params:params,toolVersion:TOOL_VERSION,paramsVersion:PARAMS_VERSION});
+  },
+  validate:p=>sanitize(p)?true:"グリッドの設定が不正です"
+};
+Studio.onDropSVG(document.body,(env,file,result)=>{
+  if(env&&env.tool===TOOL){
+    try{
+      const next=Studio.prepareRestore(env,restoreContract);
+      if(histTimer!==null)commitNow();
+      S=sanitize(next.params);selIdx=0;menuOpen=false;currentPreset=-1;showOrder=null;
+      bar.setMemo(next.memo||"");syncAll();draw();commitNow();
+      toast("設定を戻しました（"+(env.date||"日時不明")+"）");
+    }catch(error){toast(error.message,{kind:"error",sticky:true});}
+    return;
+  }
+  /* このツールの封筒が無い SVG（封筒が無い・他のツールの封筒）は、貼った図形として追加する */
+  if(env||(result&&result.status==="missing")){
+    file.text().then(addCustomFromSVG).catch(()=>toast("ファイルを読み込めませんでした",{kind:"error",sticky:true}));
+    return;
+  }
+  toast((result&&result.message)||"SVGを読み込めませんでした",{kind:"error",sticky:true});
+});
+
+/* ============ キー（§7・KEY-00: Studio.keys に集約。自前の keydown は置かない） ============ */
+Studio.keys({
+  undo:undo,redo:redo,
+  copy:doCopy,
+  pasteSVG:addCustomFromSVG,
+  outline:()=>$("drawing").classList.toggle("outline"),
+  toggleColorTarget:()=>{
+    const order=barKeys(),i=order.indexOf(sb.colors.getTarget());   // 見えている色見本だけを回る
+    sb.colors.setTarget(order[(i+1)%order.length]);
+  },
+  extra:{r:()=>candOpen?rerollCand():shuffleAll(),c:()=>candOpen?closeCand():openCand()},   // R: シートが開いているときは撒き直し・閉じているときは版面のランダム／C: 候補のシートを開く・閉じる
+  escSteps:[
+    sb.closeDialog,
+    ()=>{if(!candOpen)return false;closeCand();return true;},
+    ()=>{if(!editMode)return false;setEdit(false);return true;},
+    ()=>{if(!menuOpen)return false;menuOpen=false;syncShapes();return true;},
+    ()=>{if(!showOrder)return false;showOrder=null;syncAll();draw();return true;}
+  ]
+});
+
+/* ============ 起動 ============ */
+/* 群の並び: （ランダム・候補・戻す）→ プリセット → グリッド → 図形 → 選んだ図形 → ルール → 手で直す（何に置くか → 何を置くか → どう変えるか → 手直し） */
+(function(){
+  gridGrp.dataset.grp="グリッド";
+  for(const key of ["","プリセット","グリッド","図形","選んだ図形","ルール","手で直す"]){
+    const g=panelEl.querySelector('.sk-grp[data-grp="'+key+'"]');
+    if(g)panelEl.appendChild(g);
+  }
+})();
+if(!loadHash())S=initState();
+setFrame(1080,1080,"1:1");
+syncAll();draw();
+hist.push(clone(S));
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

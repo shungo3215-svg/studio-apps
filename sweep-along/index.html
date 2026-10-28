@@ -1,0 +1,1500 @@
+<!doctype html>
+<html data-sm-build="2bb6b90・2026-10-28 09:33" data-sm-app="sweep-along" lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="studio-spec" content="type:一枚もの">
+<link rel="stylesheet" href="_ext/000_kit/studio2.css?v=0.7.8">
+<title>沿わせ配置</title>
+<style>
+  /* 独自CSSは最小限（006_ツールの規格 §6）。盤面と貼り付け欄の見た目だけ。 */
+  #stageWrap{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  #canvas{ width:100%; height:100%; max-width:720px; max-height:720px; background:var(--surface); border:var(--bd) solid var(--outline); border-radius:var(--r-xs); display:block; }
+  .guide{ fill:none; stroke:#bbbbbb; stroke-width:0.5; stroke-dasharray:2 2; }
+  .guideAnchor{ fill:#bbbbbb; stroke:none; }
+  #errBar{ font:400 12px/1.5 var(--font); color:#b0463e; max-width:100%; padding:0 var(--sp-m); }
+  #errBar:empty{ display:none; }
+  .pasteBox{ display:flex; flex-direction:column; gap:var(--sp-xs); padding:var(--pad) var(--sp-m); border-bottom:var(--bd) solid var(--outlineBright); }
+  .pasteBox label{ font:700 11px/1.3 var(--font); color:var(--onSurfaceVariant); letter-spacing:.08em; }
+  .pasteBox textarea{ width:100%; box-sizing:border-box; min-height:44px; font:400 11px/1.5 var(--font); resize:vertical; }
+  .pasteBox .row{ display:flex; gap:var(--sp-s); align-items:center; flex-wrap:wrap; }
+  /* 貼り付け欄の壁（段6-A-2）: 既定は折りたたみ（1行の要約＋「SVGを貼る」）。 */
+  .pasteSummaryRow{ display:flex; align-items:center; justify-content:space-between; gap:var(--sp-s); }
+  .pasteSummary{ font:400 11px/1.4 var(--font); color:var(--onSurfaceVariant); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pasteFields{ display:flex; flex-direction:column; gap:var(--sp-xs); }
+  .pasteBox.dragover{ background:var(--surfaceContainer); }
+  /* 角度行（段3・角度は端で止まらず循環する。angle-dial.js が作るDOM） */
+  .sk-anglerow .sk-angleband{ position:relative; height:24px; box-sizing:border-box; border:var(--bd) solid var(--outline); border-radius:var(--r-xs); background:var(--surfaceContainer); cursor:ew-resize; overflow:hidden; touch-action:none; }
+  .sk-anglerow .sk-angleband:focus{ outline:2px solid var(--primary); outline-offset:1px; }
+  .sk-anglerow .sk-angleband canvas{ display:block; width:100%; height:100%; }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body data-frame="tool">
+
+<header id="bar"></header>
+
+<div id="main">
+  <div id="stage">
+    <div id="errBar" role="alert"></div>
+    <div id="stageWrap">
+      <svg id="canvas" viewBox="-150 -150 300 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="沿わせ配置のプレビュー"></svg>
+    </div>
+  </div>
+  <aside id="panel">
+    <div class="pasteBox" id="guideBox">
+      <div class="pasteSummaryRow" id="guideSummaryRow">
+        <span class="pasteSummary" id="guideSummaryText"></span>
+        <button type="button" class="btn" id="guideOpenBtn">SVG を貼る</button>
+      </div>
+      <div class="pasteFields" id="guideFields" hidden>
+        <label for="guidePaste">ガイドのパス（SVGを貼る）</label>
+        <textarea id="guidePaste" spellcheck="false" aria-label="ガイドのSVGの文字列"></textarea>
+        <div class="row">
+          <button type="button" class="btn" id="loadGuideBtn">この文字列をガイドにする</button>
+        </div>
+      </div>
+    </div>
+    <div class="pasteBox" id="objBox">
+      <div class="pasteSummaryRow" id="objSummaryRow">
+        <span class="pasteSummary" id="objSummaryText"></span>
+        <button type="button" class="btn" id="objOpenBtn">SVG を貼る</button>
+      </div>
+      <div class="pasteFields" id="objFields" hidden>
+        <label for="objPaste">並べるものの形（SVGを貼る）</label>
+        <textarea id="objPaste" spellcheck="false" aria-label="並べるもののSVGの文字列"></textarea>
+        <div class="row">
+          <button type="button" class="btn" id="loadObjBtn">この文字列を並べるものにする</button>
+          <button type="button" class="btn" id="clearObjBtn">内蔵の形に戻す</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script src="sweep.js?v=0.6.0"></script>
+<script src="angle-dial.js?v=0.6.0"></script>
+<script src="_ext/000_kit/studio-kit.js?v=0.7.10"></script>
+<script src="_ext/000_kit/scene-export.js?v=0.7.6"></script>
+<script>
+/* ============================================================
+   沿わせ配置（sweep-along）— 000_README.md 仕様。
+   ガイドのパスに沿って、間隔の規則（アンカー・一定・曲率・奥行き）でオブジェクトを
+   複製し、奥行きを付けて回転投影すると密度が生まれる。幾何演算は sweep.js。
+   ここはDOM／取り込み／描画／書き出しだけを持つ。
+   ============================================================ */
+var SVGNS = 'http://www.w3.org/2000/svg';
+var TOOL = 'sweep-along';
+var PJ = '160_沿わせ配置';
+var LAW = 'ガイドのパスに沿って間隔の規則でオブジェクトを複製し、奥行きを付けて回転投影すると密度が生まれる';
+var TOOL_VERSION = '0.7.0';
+var PARAMS_VERSION = 6; // 段6ブラッシュアップ: 色の変化(colorKind/color2)・貼った要素を順に使う・交互に裏返す・変化の幅の単位(%)を追加
+var FILL_COLOR = '#2b2b2b';
+var GUIDE_DEFAULT_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 200\"><path fill=\"none\" stroke=\"#04c\" stroke-width=\".9\" d=\"M200,100C200,155.23,155.23,200,100,200C44.77,200,0,155.23,0,100C0,44.77,44.77,0,100,0C155.23,0,200,44.77,200,100Z\"/></svg>";  // INIT-01: 最初のガイドは円1つ
+
+var canvas = document.getElementById('canvas');
+var errBar = document.getElementById('errBar');
+
+/* --- 状態 ------------------------------------------------------------- */
+var state = {
+  guideText: '',
+  guideSub: null,
+  guideFlat: null,
+  objText: '' // 貼り付け済みの並べるもののSVG文字列（''なら内蔵の形を使う）
+};
+/* 並べるもののSVGは「貼ったものの大きさ」(objSize)を変えるたびに読み直す必要があるため、
+   常駐パースはせず objParsedNow() で都度（テキスト・大きさが変わった時だけ）計算する。 */
+var objParsedCache = { text: null, size: null, result: null };
+function objParsedNow() {
+  if (!state.objText) return null;
+  if (objParsedCache.text === state.objText && objParsedCache.size === values.objSize) return objParsedCache.result;
+  var result = Sweep.parseObjectSVG(state.objText, { size: values.objSize });
+  objParsedCache = { text: state.objText, size: values.objSize, result: result };
+  return result;
+}
+function clearObjParsedCache() { objParsedCache = { text: null, size: null, result: null }; }
+
+function setError(msg) { errBar.textContent = msg; }
+function clearError() { errBar.textContent = ''; }
+
+/* 貼られたSVG文字列から <path d="..."> を全部拾う（DOMParserを使わない・軽い正規表現）。
+   <path>で囲まず d の値だけが貼られた場合（Mから始まる）もそのまま1本として読む。 */
+function extractPathDs(text) {
+  var ds = [];
+  var re = /<path\b[^>]*\sd\s*=\s*("([^"]*)"|'([^']*)')/gi;
+  var m;
+  while ((m = re.exec(text))) {
+    var d = m[2] != null ? m[2] : m[3];
+    if (d) ds.push(d);
+  }
+  if (!ds.length) {
+    var trimmed = String(text || '').trim();
+    if (/^[Mm]/.test(trimmed)) ds.push(trimmed);
+  }
+  return ds;
+}
+
+function subsFromText(text) {
+  /* ガイドも rect/circle/ellipse/line/polyline/polygon/path を全部読む（指揮者修正 2026-09-25:
+     <polygon> のガイドが読めなかった）。<svg>無しの d 文字列は従来どおり extractPathDs で拾う */
+  var parsed = Sweep.parseObjectSVG(text, { raw: true });
+  if (parsed && parsed.subs && parsed.subs.length) return parsed.subs;
+  var ds = extractPathDs(text);
+  var subs = [];
+  ds.forEach(function (d) { subs = subs.concat(Sweep.parsePath(d)); });
+  return subs;
+}
+
+/* --- ガイドの取り込み ---------------------------------------------------- */
+function loadGuide(text) {
+  var subs = subsFromText(text);
+  if (!subs.length) { setError('ガイドのパスが見つかりません'); Studio.toast('ガイドのパスが見つかりません', { kind: 'error', sticky: true }); return false; }
+  var sub = null;
+  for (var i = 0; i < subs.length; i++) { if (subs[i].closed) { sub = subs[i]; break; } }
+  if (!sub) sub = subs[0];
+  if (!sub.segs.length) { setError('有効なパスがありません'); Studio.toast('有効なパスがありません', { kind: 'error', sticky: true }); return false; }
+  state.guideText = text;
+  state.guideSub = sub;
+  state.guideFlat = Sweep.flatten(sub, 0.5);
+  clearError();
+  return true;
+}
+
+/* --- 並べるものの取り込み（段2: rect/circle/ellipse/line/polyline/polygon/path を
+   全部読む。transformも焼く。読めた要素の大きさを「貼ったものの大きさ」へ正規化する） ---- */
+function loadObject(text) {
+  var parsed = Sweep.parseObjectSVG(text, { size: values.objSize });
+  if (!parsed) {
+    // 互換: <svg>タグなしで d文字列だけが貼られた場合（段1からの書式）もpathとして読む
+    var trimmed = String(text || '').trim();
+    if (/^[Mm]/.test(trimmed)) {
+      var bareSubs = Sweep.parsePath(trimmed);
+      if (bareSubs.length && bareSubs.some(function (s) { return s.segs.length; })) {
+        state.objText = '<path d="' + trimmed.replace(/"/g, '&quot;') + '"/>';
+        clearObjParsedCache();
+        clearError();
+        return true;
+      }
+    }
+    setError('読める要素がありません');
+    Studio.toast('読める要素がありません', { kind: 'error', sticky: true });
+    return false;
+  }
+  state.objText = text;
+  clearObjParsedCache();
+  /* 2026-10-14 ユーザー「沿っているものの線幅の調整」: 貼ったものの線幅をパネル「線の太さ」へ取り込み、以後はパネルで調整する */
+  for (var pi = 0; pi < parsed.paths.length; pi++) {
+    var pp = parsed.paths[pi];
+    if (pp.stroke && pp.stroke !== 'none' && pp.strokeWidth) { values.set('strokeWidth', Math.max(0.1, Math.round(pp.strokeWidth * 10) / 10)); break; }
+  }
+  clearError();
+  return true;
+}
+function clearObjectOverride() {
+  state.objText = '';
+  clearObjParsedCache();
+}
+
+/* --- 並べるものの形（内蔵 or 貼り付け・幾何のみ） --------------------------- */
+function computeObjPaths() {
+  var parsed = objParsedNow();
+  if (parsed && parsed.paths.length) {
+    var subs = [];
+    parsed.paths.forEach(function (p) { subs = subs.concat(Sweep.parsePath(p.d)); });
+    return subs;
+  }
+  if (values.objKind === 'segment') return Sweep.builtinShape('segment', { length: values.segmentLength });
+  if (values.objKind === 'arrow') return Sweep.builtinShape('arrow', { length: values.segmentLength });
+  return Sweep.builtinShape('circle', { diameter: values.circleDiameter });
+}
+
+/* --- 並べるものの色（段2「見た目」群）。
+   貼ったものの色を使う=ON かつ貼り付けがある時は、貼った要素の中から最初に見つかった
+   実際の塗り色・線色を使う（複数要素を1個=1<path>へ統合するため、代表色1つに決める）。
+   OFF、または内蔵の形（円・線分・矢印）の時は「見た目」群の色をそのまま使う。 -------- */
+function computeObjStyle() {
+  var parsed = objParsedNow();
+  if (parsed && values.useObjectColor) {
+    var fill, stroke, strokeWidth;
+    for (var i = 0; i < parsed.paths.length; i++) {
+      if (parsed.paths[i].fill && parsed.paths[i].fill !== 'none') { fill = parsed.paths[i].fill; break; }
+    }
+    for (var j = 0; j < parsed.paths.length; j++) {
+      if (parsed.paths[j].stroke && parsed.paths[j].stroke !== 'none') { stroke = parsed.paths[j].stroke; strokeWidth = parsed.paths[j].strokeWidth || 1; break; }
+    }
+    if (!fill && !stroke) fill = FILL_COLOR;
+    return { fill: fill || 'none', stroke: stroke, strokeWidth: values.strokeWidth };   // 2026-10-14 線の太さはパネルの値（貼った時に取り込む）
+  }
+  var fillC = colorState.fillColor && colorState.fillColor !== 'none' ? colorState.fillColor : 'none';
+  var strokeC = colorState.strokeColor && colorState.strokeColor !== 'none' ? colorState.strokeColor : undefined;
+  /* 線分・矢印は開いたパスなので塗りでは見えない。線の色が「なし」なら塗りの色を線に使う
+     （指揮者修正 2026-09-25: 線の色の既定が「なし」のため線分が消えていた） */
+  if (!parsed && (values.objKind === 'segment' || values.objKind === 'arrow') && !strokeC) {
+    strokeC = fillC !== 'none' ? fillC : FILL_COLOR;
+    fillC = 'none';
+  }
+  return { fill: fillC, stroke: strokeC, strokeWidth: values.strokeWidth };
+}
+
+/* --- 貼った要素を順に使う（段6-B-9）。並べるものが貼り付け・複数要素の時だけ、
+   parseObjectSVGが返す要素ごとのpaths（各自の色を保つ）を返す。1要素以下、または
+   貼り付けが無い/機能OFFならnull（=呼び出し側は今までどおり統合したobjPaths/styleを使う）。 */
+function objElementsList() {
+  if (!values.useElementsInOrder || !state.objText) return null;
+  var parsed = objParsedNow();
+  if (!parsed || !parsed.paths || parsed.paths.length < 2) return null;
+  return parsed.paths;
+}
+function styleForElement(elem) {
+  var fill = (elem.fill && elem.fill !== 'none') ? elem.fill : 'none';
+  var stroke = elem.stroke && elem.stroke !== 'none' ? elem.stroke : undefined;
+  if (fill === 'none' && !stroke) fill = FILL_COLOR;
+  return { fill: fill, stroke: stroke, strokeWidth: values.strokeWidth };
+}
+
+/* --- 色の変化（段6-B-8・見た目群）。placementsの並び順（seqIndex）に対応する色配列を
+   返す。colorKind='none'、または「貼った要素を順に使う」が効いている間（各要素が
+   自分の色を保つ方を優先）はnull（呼び出し側は元のstyleをそのまま使う）。 --------- */
+function computePlacementColors(placements, style) {
+  if (!values.colorKind || values.colorKind === 'none') return null;
+  if (objElementsList()) return null;
+  var base = (style.fill && style.fill !== 'none') ? style.fill : (style.stroke && style.stroke !== 'none' ? style.stroke : FILL_COLOR);
+  return Sweep.colorRule(placements, values.colorKind, base, values.color2, { flat: state.guideFlat, gain: 1 });
+}
+/* colorsArr[p.seqIndex] を、塗り・線のどちらが「見えている色」かに応じて差し替える
+   （両方見えている時は塗りの方を差し替える・簡略化。000_README.mdに明記）。 */
+function resolvePlacementStyle(p, style, colorsArr) {
+  if (!colorsArr) return style;
+  var c = colorsArr[p.seqIndex != null ? p.seqIndex : 0];
+  if (style.fill && style.fill !== 'none') return { fill: c, stroke: style.stroke, strokeWidth: style.strokeWidth };
+  if (style.stroke && style.stroke !== 'none') return { fill: style.fill, stroke: c, strokeWidth: style.strokeWidth };
+  return { fill: c, stroke: style.stroke, strokeWidth: style.strokeWidth };
+}
+
+/* --- 奥行きの規則パラメータをdepthProfileのoptsへ変換 ------------------------ */
+function depthOptsFor(v) {
+  if (v.depthKind === 'wave') return { cycles: v.depthCycles, phase: (v.depthPhase || 0) + playWaveOff, amp: v.depthAmp };
+  if (v.depthKind === 'ramp') return { from: -v.depthAmp, to: v.depthAmp };
+  if (v.depthKind === 'alt') return { amp: v.depthAmp };
+  return {};
+}
+
+/* --- 沿わせ方の自由度（段2）の設定値をapplySweepOptionsのoptsへ変換 ------------- */
+function sweepOptsFor(v) {
+  return {
+    startShift: v.startShift, rangeStart: v.rangeStart, rangeEnd: v.rangeEnd,
+    offset: v.offset, offsetWaveAmp: v.offsetWaveAmp, offsetWaveCycles: v.offsetWaveCycles,
+    tilt: v.tilt, spinTurns: v.spinTurns,
+    columns: v.columns, columnGap: v.columnGap,
+    jitter: { seed: v.jitterSeed, pos: v.jitterPos, size: v.jitterSize, angle: v.jitterAngle }
+  };
+}
+
+/* --- 立体（段5・5-2）: 「置く面」を Sweep.placeOnFrame/bakeObject3D の plane 名へ、
+   「透視の強さ」をカメラ距離fへ変換する（カメラ距離=viewBox長辺×(10/透視の強さ)・
+   spec.md 5-2）。 ----------------------------------------------------------- */
+function solidPlaneFor(v) { return v.solidMode === 'stand' ? 'stand' : (v.solidMode === 'twist' ? 'twist' : 'lay'); }
+function solidProjOpts(vb) {
+  var persp = values.perspective || 0;
+  var f = persp > 0 ? Math.max(vb.w, vb.h) * (10 / persp) : 1000;
+  return { ax: axNow(), ay: ayNow(), persp: persp, f: f };
+}
+
+/* 各配置に奥行きz（奥行きの規則から。置き方が「奥行きで密に」以外でも効く）を割り当てる。
+   sizeRule('depth')が反応できるよう、applySweepOptionsの前後どちらでも呼べる純粋な関数
+   にしてある（弧長sから3D曲線上のzを引くだけ・向きは変えない）。 */
+function assignDepthZ(placements, flat, flat3D) {
+  if (!flat.length) { placements.forEach(function (p) { p.z = 0; }); return; }
+  placements.forEach(function (p) {
+    var s2d = ((p.s % flat.length) + flat.length) % flat.length;
+    var s3 = Sweep.arcLength2Dto3D(flat, flat3D, s2d);
+    p.z = Sweep.frameAt(flat3D, s3, null).P.z;
+  });
+}
+
+/* 最終（使う範囲・ずらし・列・ばらつき適用後）の配置に、向き(frame.N/B)・ひねり角・
+   投影後の奥行き(sortZ・回転ax/ayを反映)・正規化した奥行き(depthNorm・0=奥,1=手前)を
+   付ける。原点(frame.P.x/y)は配置の実座標(離す距離・列・ばらつき込み)を使い、
+   向きだけ3D曲線のその弧長位置のフレームを使う（frameAtの位置そのものではなく）。 */
+function attachSolidFrames(placements, flat, flat3D) {
+  var L = flat3D.length;
+  var prevN = null;
+  placements.forEach(function (p) {
+    var s2d = flat.length > 1e-9 ? ((p.s % flat.length) + flat.length) % flat.length : 0;
+    var s3 = Sweep.arcLength2Dto3D(flat, flat3D, s2d);
+    var fr0 = Sweep.frameAt(flat3D, s3, prevN);
+    prevN = fr0.N;
+    p.frame = { P: { x: p.x, y: p.y, z: fr0.P.z }, T: fr0.T, N: fr0.N, B: fr0.B };
+    p.z = fr0.P.z;
+    p.twistRad = L > 1e-9 ? 2 * Math.PI * (values.twistTurns || 0) * (s3 / L) : 0;
+  });
+  var zs = placements.map(function (p) { return p.z || 0; });
+  var zMin = zs.length ? Math.min.apply(null, zs) : 0, zMax = zs.length ? Math.max.apply(null, zs) : 0;
+  var zSpan = (zMax - zMin) || 1;
+  placements.forEach(function (p) {
+    p.depthNorm = (( p.z || 0) - zMin) / zSpan;
+    var rotP = Sweep.rotateProject([[p.x, p.y, p.z || 0]], axNow(), ayNow())[0];
+    p.sortZ = rotP.z;
+  });
+}
+
+/* --- 配置の計算（置き方→向き(固定角)→[立体: 奥行きz]→大きさ→沿わせ方の自由度→
+   [立体: 向き(frame)・ひねり・投影奥行き]） -----------------------------------
+   applySweepOptionsを大きさの後に置く理由: 使う範囲・列数・ばらつきは「向き・大きさが
+   決まった後の並び全体」に対する調整（範囲の絞り込み・列の複製・位置と大きさの
+   ばらつき）として効かせたいため。傾き・進行で回すは各配置の角度に加算するだけ
+   なので、固定角(orientMode='fixed')の後でも意味が保たれる。奥行きzは、大きさの変化
+   「奥行きで」が使う範囲/ずらしの前後どちらでも同じ弧長基準で反応できるよう、
+   sizeRuleの前後2回（使う範囲の前後）で付け直す。 --------------------------------- */
+function computePlacements() {
+  var flat = state.guideFlat;
+  if (!flat) return [];
+  var mode = values.placeMode;
+  var opts = {};
+  if (mode === 'count') opts = { count: values.count };
+  else if (mode === 'distance') opts = { distance: values.distance };
+  else if (mode === 'curvature') opts = { count: values.count, k: values.curvatureK };
+  else if (mode === 'depth') opts = { count: values.count, depthKind: values.depthKind, depthOpts: depthOptsFor(values), ax: axNow(), ay: ayNow() };
+  var placements = Sweep.place(flat, mode, opts);
+
+  if (values.orientMode === 'fixed') {
+    var rad = values.fixedAngle * Math.PI / 180;
+    placements.forEach(function (p) { p.angle = rad; });
+  }
+  if (playSpinRad) placements.forEach(function (p) { p.angle += playSpinRad; });   // 再生中の向きの回転
+
+  var flat3D = null;
+  if (values.useDepth) {
+    flat3D = Sweep.build3DFlat(flat, values.depthKind, depthOptsFor(values));
+    assignDepthZ(placements, flat, flat3D);
+  }
+
+  /* 段6-B-7: 変化の幅は−100〜+100%のUI値を/100してsizeRuleのgain（-1〜1想定）へ渡す。
+     全モード共通のスケール（sweep.js taperEnds/taperCenterのコメント参照）。 */
+  Sweep.sizeRule(placements, values.sizeMode, { gain: (values.sizeGain || 0) / 100, flat: flat });
+  var out = Sweep.applySweepOptions(placements, flat, sweepOptsFor(values));
+
+  if (values.useDepth) {
+    attachSolidFrames(out, flat, flat3D);
+  }
+  /* seqIndex: ガイドに沿った並び順（0始まり）。z並び替え（立体の描画順）や列複製の後でも
+     「貼った要素を順に使う」「交互に裏返す」「色の変化」が並び順基準で効くよう、
+     最終配列のインデックスをここで一度だけ固定して各placementへ持たせる。 */
+  out.forEach(function (p, i) {
+    p.seqIndex = i;
+    if (values.mirrorAlternate) p.mirror = (i % 2 === 1);
+  });
+  return out;
+}
+
+/* --- 表示範囲（ガイドの実測bboxに、並べるものの寸法ぶん余白を足す） -------------- */
+function bboxOf2DPoints(pts) {
+  var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  pts.forEach(function (p) {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+  });
+  return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+}
+function compute2DViewBox(flat) {
+  var bb = bboxOf2DPoints(flat.pts);
+  var w = Math.max(1, bb.maxX - bb.minX), h = Math.max(1, bb.maxY - bb.minY);
+  var objSize = Math.max(values.circleDiameter || 0, values.segmentLength || 0, values.objSize || 0);
+  var spread = Math.abs(values.offset || 0) + (values.offsetWaveAmp || 0)
+    + Math.abs((values.columns || 1) - 1) * (values.columnGap || 0) / 2
+    + (values.jitterPos || 0);
+  var margin = Math.max(w, h) * 0.15 + objSize + spread;
+  return { x: bb.minX - margin, y: bb.minY - margin, w: w + margin * 2, h: h + margin * 2 };
+}
+/* 版面フィット（段7バグ修正・000_README.mdの規則）: 版面(artboard)は常にkitの大きさ
+   （上部バー「大きさ」・sizeWH）そのもの＝内容によって伸び縮みしない固定の枠。
+   対象（立体OFF＝ガイド＋配置の2Dbbox、立体ON＝投影後の配置＋投影後のガイドのbbox）を
+   Sweep.fitToArtboard で版面へ中央揃え・余白8%収める一様変換{scale,tx,ty}を1か所
+   （このcomputeArtFit）だけで計算し、描画（render）・書き出し（buildExportSVG）・
+   シーンJSON（buildSceneJSON）の全部がここを通す。
+   オブジェクトの大きさ（円の直径px等）は版面のpxとして扱うため、フィットの拡大は
+   ガイド・配置の「位置」にだけ掛かるようにする：fitArtグループへ transform として
+   scale/tx/tyを掛け、その分だけ「並べるものの局所形状」を1/scaleへ事前縮小して
+   打ち消す（scaleSubs）。旧「投影後のbbox＋余白8%」（段6-A-5・段6-A-5-2）はこの規則
+   へ置き換えた。 */
+function currentArtboard() { return { x: 0, y: 0, w: sizeWH[0], h: sizeWH[1] }; }
+function computeArtFit(flat) {
+  var artboard = currentArtboard();
+  if (!flat || !flat.pts || !flat.pts.length) return { scale: 1, tx: 0, ty: 0, artboard: artboard };
+  var placements = computePlacements();
+  var pts2D;
+  if (values.useDepth) {
+    var proj = solidProjOpts(compute2DViewBox(flat));
+    var flat3D = Sweep.build3DFlat(flat, values.depthKind, depthOptsFor(values));
+    pts2D = flat3D.pts.map(function (p) { return Sweep.projectPoint(p, proj); });
+    placements.forEach(function (p) { pts2D.push(Sweep.projectPoint({ x: p.x, y: p.y, z: p.z || 0 }, proj)); });
+  } else {
+    pts2D = flat.pts.map(function (p) { return { x: p.x, y: p.y }; });
+    placements.forEach(function (p) { pts2D.push({ x: p.x, y: p.y }); });
+  }
+  var bb = bboxOf2DPoints(pts2D);
+  if (!isFinite(bb.minX)) return { scale: 1, tx: 0, ty: 0, artboard: artboard };
+  var fit = Sweep.fitToArtboard(bb, artboard, 0.08);
+  fit.artboard = artboard;
+  return fit;
+}
+/* オブジェクトの局所形状（1個ぶんのsubs配列）をk倍する。版面フィットの拡大は
+   fitArtグループの transform で位置ごと掛かるため、局所形状だけあらかじめ1/scale
+   しておくと最終的な見た目の大きさが変わらない（版面フィットの規則・上のコメント）。 */
+function scaleSubs(subs, k) {
+  function sp(p) { return { x: p.x * k, y: p.y * k }; }
+  return (subs || []).map(function (sub) {
+    return {
+      closed: !!sub.closed,
+      anchors: (sub.anchors || []).map(sp),
+      segs: (sub.segs || []).map(function (seg) {
+        if (seg.type === 'L') return { type: 'L', a: sp(seg.a), b: sp(seg.b) };
+        return { type: 'C', p0: sp(seg.p0), p1: sp(seg.p1), p2: sp(seg.p2), p3: sp(seg.p3) };
+      })
+    };
+  });
+}
+
+/* --- 配置を<path>群としてcontainerへ描く（画面描画・SVG書き出しの共通処理）。
+   立体OFFなら今までどおりbakeObject。立体ONならbakeObject3D＋shadeColor（陰影）で
+   1個ずつ3D→2Dへ焼く（段5・DoD(段5g): OFFのときはこの分岐に入らないので既存結果と一致）。
+   shapeScale（既定1）: 版面フィットの拡大を打ち消すため、並べるものの局所形状だけ
+   あらかじめこの倍率で縮めてから焼く（呼び出し側がcomputeArtFit().scaleの逆数を渡す）。 */
+function drawArtInto(container, placements, objPaths, style, vb, shapeScale) {
+  shapeScale = shapeScale != null ? shapeScale : 1;
+  var solidOn = !!values.useDepth;
+  var plane = solidPlaneFor(values);
+  var proj = solidOn ? solidProjOpts(vb) : null;
+  var elements = objElementsList();
+  var colorsArr = elements ? null : computePlacementColors(placements, style);
+  var baseObjPaths = scaleSubs(objPaths, shapeScale);
+  var ordered = placements.slice().sort(function (a, b) {
+    return (solidOn ? (a.sortZ || 0) : (a.z || 0)) - (solidOn ? (b.sortZ || 0) : (b.z || 0));
+  });
+  ordered.forEach(function (p) {
+    var path = document.createElementNS(SVGNS, 'path');
+    var thisObjPaths = baseObjPaths, thisStyle = style;
+    if (elements) {
+      var elem = elements[Sweep.objectIndexFor(p.seqIndex || 0, elements.length)];
+      thisObjPaths = scaleSubs(Sweep.parsePath(elem.d), shapeScale);
+      thisStyle = styleForElement(elem);
+    } else if (colorsArr) {
+      thisStyle = resolvePlacementStyle(p, style, colorsArr);
+    }
+    var d, fillC = thisStyle.fill, strokeC = thisStyle.stroke, swC = thisStyle.strokeWidth;
+    if (solidOn) {
+      d = Sweep.bakeObject3D(thisObjPaths, p, { plane: plane, twist: p.twistRad, proj: proj });
+      var facing = 1;
+      if ((plane === 'stand' || plane === 'twist') && p.frame) {
+        var Trot = Sweep.rotateProject([[p.frame.T.x, p.frame.T.y, p.frame.T.z]], axNow(), ayNow())[0];
+        facing = Math.abs(Trot.z);
+      }
+      var shadeOpts = { depthNorm: p.depthNorm, haze: values.haze, facing: facing, brightness: values.brightness, bg: '#ffffff' };
+      if (fillC && fillC !== 'none') fillC = Sweep.shadeColor(fillC, shadeOpts);
+      if (strokeC && strokeC !== 'none') strokeC = Sweep.shadeColor(strokeC, shadeOpts);
+      if (values.thinFar) swC = swC * (0.5 + 0.5 * (p.depthNorm != null ? p.depthNorm : 1));
+    } else {
+      d = Sweep.bakeObject(thisObjPaths, p);
+    }
+    path.setAttribute('d', d);
+    path.setAttribute('fill', fillC === 'none' ? 'none' : fillC);
+    if (strokeC && strokeC !== 'none') { path.setAttribute('stroke', strokeC); path.setAttribute('stroke-width', swC); }
+    container.appendChild(path);
+  });
+}
+
+/* --- 版面（§0・§13 VID-01）。上部バーの「大きさ」（4:5 既定・1080×1350等）そのもの
+   が版面＝内容によって伸び縮みしない固定の枠（版面フィットの規則・computeArtFit参照）。 ---- */
+var sizeWH = Studio.SIZES[Object.keys(Studio.SIZES)[0]].slice();
+var sizeKeyCur = Object.keys(Studio.SIZES)[0];
+var frameBox = null;
+function computeFrameBox() {
+  return { x: 0, y: 0, w: sizeWH[0], h: sizeWH[1], pxW: sizeWH[0], pxH: sizeWH[1], key: sizeKeyCur };
+}
+function drawFrameGuide() {
+  if (!frameBox) return;
+  var f = frameBox, g = document.createElementNS(SVGNS, 'g');
+  g.setAttribute('class', 'frame-guide'); g.setAttribute('pointer-events', 'none');
+  var r = document.createElementNS(SVGNS, 'rect');
+  r.setAttribute('x', f.x); r.setAttribute('y', f.y); r.setAttribute('width', f.w); r.setAttribute('height', f.h);
+  r.setAttribute('fill', 'none'); r.setAttribute('stroke', '#8A8A8A'); r.setAttribute('stroke-width', 1);
+  r.setAttribute('stroke-dasharray', '4 3'); r.setAttribute('vector-effect', 'non-scaling-stroke');
+  g.appendChild(r);
+  // 横幅の寸法線（版面の上）: 端の目盛り＋「4:5 · 1080 × 1350 px」
+  var y = f.y - Math.max(f.w, f.h) * 0.03, tick = Math.max(f.w, f.h) * 0.012;
+  function line(x1, y1, x2, y2) {
+    var l = document.createElementNS(SVGNS, 'line');
+    l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+    l.setAttribute('stroke', '#8A8A8A'); l.setAttribute('stroke-width', 1); l.setAttribute('vector-effect', 'non-scaling-stroke');
+    g.appendChild(l);
+  }
+  line(f.x, y, f.x + f.w, y); line(f.x, y - tick, f.x, y + tick); line(f.x + f.w, y - tick, f.x + f.w, y + tick);
+  var t = document.createElementNS(SVGNS, 'text');
+  t.setAttribute('x', f.x + f.w / 2); t.setAttribute('y', y - tick * 1.3); t.setAttribute('text-anchor', 'middle');
+  t.setAttribute('font-size', Math.max(f.w, f.h) * 0.022); t.setAttribute('fill', '#6F6F6F');
+  t.setAttribute('font-family', 'ui-monospace, Menlo, monospace'); t.setAttribute('font-weight', '600');
+  t.textContent = f.key + ' · ' + f.pxW + ' × ' + f.pxH + ' px';
+  g.appendChild(t);
+  canvas.appendChild(g);
+}
+
+/* --- 色（§0・§5 COLOR-00）。上部バーのスウォッチへ（塗り・線・背景）。パネルには
+   色の群を置かない。規定パレット（Studio.PALETTES）から初期値を選ぶ（暗い方を塗りに、
+   線は既定「なし」・背景は既定「白」）。 ------------------------------------------- */
+var DEFAULT_PALETTE_COLORS = (Studio.PALETTES && Studio.PALETTES[0] && Studio.PALETTES[0].colors) || [FILL_COLOR, '#ffffff'];
+function pickDefaultFillColor() {
+  var cs = DEFAULT_PALETTE_COLORS.slice();
+  function lum(h) { var n = parseInt(String(h).slice(1), 16); return ((n >> 16) & 255) * .299 + ((n >> 8) & 255) * .587 + (n & 255) * .114; }
+  // INIT-01: 最初の色は規定パレット navy の先頭色（#0044CC）
+  return cs[0] || FILL_COLOR;
+}
+var colorState = { fillColor: pickDefaultFillColor(), strokeColor: 'none', bg: '#FFFFFF' };
+function setColorState(key, v) { colorState[key] = v; render(); pushHistory(); }
+
+/* --- 描画パイプライン ------------------------------------------------------- */
+function render() {
+  syncVisibility();
+  updatePasteSummaries();
+  canvas.innerHTML = '';
+  if (!state.guideFlat) { frameBox = null; return; }
+  // 版面はkitの大きさそのもの（固定）。中身（ガイド＋配置。立体ONは投影後）は
+  // computeArtFitで版面へ中央揃え・余白8%のfitArtグループtransformとして収める
+  // （版面フィットの規則・computeArtFitのコメント参照）。
+  var vb = compute2DViewBox(state.guideFlat); // 透視のカメラ距離fの基準（内容の自然な大きさ・版面とは独立）
+  frameBox = computeFrameBox();
+  var fit = computeArtFit(state.guideFlat);
+  var m = Math.max(frameBox.w, frameBox.h) * 0.06;
+  canvas.setAttribute('viewBox', [frameBox.x - m, frameBox.y - m, frameBox.w + 2 * m, frameBox.h + 2 * m].join(' '));
+
+  if (colorState.bg && colorState.bg !== 'none') {   // 背景は版面の中だけに塗る（外は作業台の色）
+    var fbg = document.createElementNS(SVGNS, 'rect');
+    fbg.setAttribute('x', frameBox.x); fbg.setAttribute('y', frameBox.y);
+    fbg.setAttribute('width', frameBox.w); fbg.setAttribute('height', frameBox.h);
+    fbg.setAttribute('fill', colorState.bg); fbg.setAttribute('pointer-events', 'none');
+    canvas.appendChild(fbg);
+  }
+  drawFrameGuide();
+
+  // 絵（ガイド＋並べたもの）を版面に収めるグループ。版面フィットのtransformを常に掛ける。
+  var fitArt = document.createElementNS(SVGNS, 'g'); fitArt.setAttribute('class', 'fit-art');
+  fitArt.setAttribute('transform', 'matrix(' + fit.scale + ' 0 0 ' + fit.scale + ' ' + fit.tx + ' ' + fit.ty + ')');
+  canvas.appendChild(fitArt);
+
+  if (values.showGuide) {
+    var solidGuideOn = !!values.useDepth;
+    var guideD, anchorPts2D;
+    if (solidGuideOn) {
+      /* ガイドも配置と同じ回転・投影で描く（破線・アンカーとも）。
+         3D曲線(flat3D)を弧長順に投影して折れ線として描く（元のベジェ制御点は使わず、
+         flatten済みの点列を使う簡略化。dash表示なので実用上は視覚差が出ない）。
+         版面フィットはfitArtグループのtransformで掛かるため、ここではraw座標のまま描く。 */
+      var guideProj = solidProjOpts(vb);
+      var guideFlat3D = Sweep.build3DFlat(state.guideFlat, values.depthKind, depthOptsFor(values));
+      var guidePts2D = guideFlat3D.pts.map(function (p) { return Sweep.projectPoint(p, guideProj); });
+      guideD = guidePts2D.length ? ('M' + guidePts2D.map(function (p) { return p.x.toFixed(2) + ' ' + p.y.toFixed(2); }).join('L')) : '';
+      if (state.guideSub.closed) guideD += 'Z';
+      if (values.showAnchors && state.guideSub && state.guideSub.anchors && state.guideFlat.anchorS) {
+        anchorPts2D = state.guideSub.anchors.map(function (a, i) {
+          var s2d = state.guideFlat.anchorS[i] != null ? state.guideFlat.anchorS[i] : 0;
+          var s3 = Sweep.arcLength2Dto3D(state.guideFlat, guideFlat3D, s2d);
+          var z = Sweep.frameAt(guideFlat3D, s3, null).P.z;
+          return Sweep.projectPoint({ x: a.x, y: a.y, z: z }, guideProj);
+        });
+      }
+    } else {
+      guideD = Sweep.bakeObject([state.guideSub], { x: 0, y: 0, angle: 0, scale: 1 });
+      if (values.showAnchors && state.guideSub && state.guideSub.anchors) anchorPts2D = state.guideSub.anchors;
+    }
+    var pGuide = document.createElementNS(SVGNS, 'path');
+    pGuide.setAttribute('class', 'guide');
+    pGuide.setAttribute('d', guideD);
+    fitArt.appendChild(pGuide);
+    /* ガイドのアンカーを表示（段4）: 画面表示だけ。書き出しSVG・シーンJSONには入れない
+       （buildExportSVG/buildSceneJSONはこのcanvas描画と別に配置だけから組み立てるため、
+       ここに足すだけで自動的に書き出しからは除外される）。 */
+    if (anchorPts2D) {
+      anchorPts2D.forEach(function (a) {
+        var c = document.createElementNS(SVGNS, 'circle');
+        c.setAttribute('class', 'guideAnchor');
+        c.setAttribute('cx', a.x); c.setAttribute('cy', a.y); c.setAttribute('r', 1.5);
+        fitArt.appendChild(c);
+      });
+    }
+  }
+
+  var placements = computePlacements();
+  var objPaths = computeObjPaths();
+  var style = computeObjStyle();
+  var gArt = document.createElementNS(SVGNS, 'g'); gArt.id = 'art';
+  drawArtInto(gArt, placements, objPaths, style, vb, fit.scale > 1e-9 ? 1 / fit.scale : 1);
+  fitArt.appendChild(gArt);
+}
+
+/* --- 上部バー（§0・§13）。書き出しはアイコン付きの短い形（コピー/SVG/JSON）。 --- */
+// Serendie Symbols outlined/file-download.svg（000_kit/symbols・MIT。立体スプラインと同じアイコン）。
+var ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.50095 3.64935C9.66036 3.48994 9.87656 3.40039 10.102 3.40039H18.7484C19.2179 3.40039 19.5984 3.78095 19.5984 4.25039V19.7504C19.5984 20.2198 19.2179 20.6004 18.7484 20.6004H5.24844C4.77899 20.6004 4.39844 20.2198 4.39844 19.7504V9.10394C4.39844 8.87851 4.48799 8.66231 4.6474 8.5029L9.50095 3.64935ZM10.247 4.60039L5.59844 9.24892V19.4004H18.3984V4.60039H10.247ZM5.4962 9.35116L5.49592 9.35143L5.24844 9.10394L5.49592 9.35143C5.49602 9.35134 5.49611 9.35125 5.4962 9.35116ZM10.3492 4.49816C10.3493 4.49807 10.3494 4.49797 10.3495 4.49788L10.102 4.25039L10.3495 4.49788L10.3492 4.49816ZM11.3983 13.5522L9.60457 11.7584L8.75604 12.607L11.3967 15.2477C11.7287 15.5796 12.2669 15.5796 12.5988 15.2477L15.2391 12.6074L14.3906 11.7588L12.5983 13.5511L12.5979 9.00009L11.3979 9.00019L11.3983 13.5522Z" fill="currentColor"/></svg>';
+var bar = Studio.appBar('#bar', {
+  name: '沿わせ配置', sub: 'SWEEP-ALONG',
+  onCopy: doCopySVG, onSvg: doExportSVG,
+  copyLabel: 'コピー',
+  svgLabel: 'SVG', svgTitle: 'SVGを書き出し', svgAriaLabel: 'SVGを書き出し', svgIcon: ICON_DOWNLOAD,
+  extra: [{ label: '動きの書き出しへ JSON', icon: ICON_DOWNLOAD, title: '見た目と配置の規則をシーンJSONで書き出す（150_動きの書き出しで読み込んで動かせる）',
+    ariaLabel: '動きの書き出しへシーンJSONを書き出し', onClick: doExportSceneJSON, id: 'sceneJson' }]
+});
+
+/* --- 上部バー共通操作（§0・§13 VID-02/03）。大きさ・色（塗り・線・背景）・再生・A/B・
+   映像をここへ集約する（KEY-04: 色・再生の入口はそれぞれ1つだけにする＝パネルには置かない）。
+   getParams/apply/frame/metaはこのファイル内の関数（関数宣言はホイストされるため、
+   このすぐ下で定義していない関数もここから参照できる）。 --------------------------- */
+var sb = Studio.stageBar('#bar', {
+  onSize: function (w, h, key) { sizeWH = [w, h]; sizeKeyCur = key; render(); },
+  colors: [
+    { key: 'fillColor', label: '塗り', value: colorState.fillColor },
+    { key: 'strokeColor', label: '線', value: colorState.strokeColor },
+    { key: 'bg', label: '背景', value: colorState.bg }
+  ],
+  palettes: true,
+  onColorChange: function (key, v) { setColorState(key, v); },
+  getParams: motionParams,
+  integerKeys: ['count', 'offsetWaveCycles', 'columns', 'jitterSeed', 'depthCycles'],
+  apply: applyMotionParams,
+  play: function () { toggleDefaultPlay(); },
+  frame: frameForExport,
+  meta: exportMeta
+});
+
+/* --- パネル（2026-10-13 全体整理。ユーザー「右のタブバーを整理して 何がなんだか使いにくい」）。
+   10群→8群。作業の順＝ガイド→並べるもの→並べ方→向きと大きさ→色と線→ばらつき→立体→動き。
+   「置き方」と「パスからの距離」は「並べ方」へ統合、「向き」と「大きさの変化」は「向きと大きさ」へ統合、
+   「見た目」は「色と線」に改名。ばらつき・立体は使う時だけ開く（collapsed）。封筒 params のキー名は不変。 --------- */
+var spec = [
+  { type: 'group', label: 'ガイド' },
+  { type: 'checkbox', key: 'showGuide', label: 'ガイドを表示', value: true },
+  { type: 'checkbox', key: 'showAnchors', label: 'ガイドのアンカーを表示', value: false },
+
+  { type: 'group', label: '並べるもの' },
+  { type: 'select', key: 'objKind', label: '形', value: 'circle', options: [
+    { value: 'circle', label: '円' },
+    { value: 'segment', label: '線分' },
+    { value: 'arrow', label: '矢印' }
+  ] },
+  { type: 'range', key: 'circleDiameter', label: '円の直径', unit: 'px', min: 1, max: 200, step: 1, value: 56 },
+  { type: 'range', key: 'segmentLength', label: '線分の長さ', unit: 'px', min: 1, max: 200, step: 1, value: 16 },
+  { type: 'range', key: 'objSize', label: '貼ったものの大きさ', unit: 'px', min: 1, max: 300, step: 1, value: 16 },
+  { type: 'checkbox', key: 'useElementsInOrder', label: '貼った要素を順に使う', value: false },
+
+  { type: 'group', label: '並べ方' },
+  { type: 'select', key: 'placeMode', label: '置き方', value: 'count', options: [
+    { value: 'anchors', label: 'アンカーごとに置く' },
+    { value: 'count', label: '個数で等間隔に置く' },
+    { value: 'distance', label: '距離で等間隔に置く' },
+    { value: 'curvature', label: '曲がりが強いほど密に置く' },
+    { value: 'depth', label: '奥行きで密に置く' }
+  ] },
+  { type: 'range', key: 'count', label: '置く個数', unit: '個', min: 3, max: 1000, step: 1, integer: true, value: 24 },
+  { type: 'range', key: 'distance', label: '置く間隔', unit: 'px', min: 2, max: 300, step: 1, value: 20 },
+  { type: 'range', key: 'curvatureK', label: '密にする強さ', unit: '倍', min: 0, max: 10, step: 0.1, value: 2 },
+  { type: 'range', key: 'startShift', label: '開始位置のずらし', unit: '%', min: 0, max: 100, step: 1, value: 0 },
+  { type: 'range', key: 'rangeStart', label: '使う範囲 開始', unit: '%', min: 0, max: 100, step: 1, value: 0 },
+  { type: 'range', key: 'rangeEnd', label: '使う範囲 終了', unit: '%', min: 0, max: 100, step: 1, value: 100 },
+  { type: 'range', key: 'offset', label: 'パスから離す距離', unit: 'px', min: -200, max: 200, step: 1, value: 0 },
+  { type: 'range', key: 'offsetWaveAmp', label: '離す距離の振幅', unit: 'px', min: 0, max: 200, step: 1, value: 0 },
+  { type: 'range', key: 'offsetWaveCycles', label: '離す距離の周期数', unit: '回', min: 1, max: 12, step: 1, integer: true, value: 1 },
+  { type: 'range', key: 'columns', label: '列数', unit: '列', min: 1, max: 12, step: 1, integer: true, value: 1 },
+  { type: 'range', key: 'columnGap', label: '列の間隔', unit: 'px', min: 0, max: 200, step: 1, value: 20 },
+
+  { type: 'group', label: '向きと大きさ' },
+  /* 固定角・傾きは角度行（AngleDial）。panel 構築後に「向き」の次へ差し込む。 */
+  { type: 'select', key: 'orientMode', label: '向き', value: 'tangent', options: [
+    { value: 'tangent', label: '接線に沿う' },
+    { value: 'fixed', label: '固定角' }
+  ] },
+  { type: 'range', key: 'spinTurns', label: '1周で回る回数', unit: '回転', min: -10, max: 10, step: 0.5, value: 0 },
+  { type: 'checkbox', key: 'mirrorAlternate', label: '交互に裏返す', value: false },
+  { type: 'select', key: 'sizeMode', label: '変化の仕方', value: 'constant', options: [
+    { value: 'constant', label: 'なし' },
+    { value: 'curvature', label: '曲がりが強いほど大きく' },
+    { value: 'ramp', label: '位置でだんだん' },
+    { value: 'taperEnds', label: '両端をすぼめる' },
+    { value: 'taperCenter', label: '中央をすぼめる' },
+    { value: 'depth', label: '奥行きで' }
+  ] },
+  { type: 'range', key: 'sizeGain', label: '変化の幅', unit: '%', min: -100, max: 100, step: 1, integer: true, value: 100 },
+
+  { type: 'group', label: '色と線' },
+  { type: 'checkbox', key: 'useObjectColor', label: '貼ったものの色を使う', value: true },
+  { type: 'range', key: 'strokeWidth', label: '線の太さ', unit: 'px', min: 0.1, max: 40, step: 0.1, value: 1 },
+  { type: 'select', key: 'colorKind', label: '色の変化', value: 'none', options: [
+    { value: 'none', label: 'なし' },
+    { value: 'gradient', label: '位置で2色をつなぐ' },
+    { value: 'alternate', label: '交互に2色' },
+    { value: 'curvature', label: '曲がりが強いほど2色目へ' }
+  ] },
+  { type: 'color', key: 'color2', label: '色2', value: '#ffffff', none: false },
+
+  { type: 'group', label: 'ばらつき', collapsed: true },
+  { type: 'range', key: 'jitterPos', label: '位置のばらつき', unit: 'px', min: 0, max: 100, step: 1, value: 0 },
+  { type: 'range', key: 'jitterSize', label: '大きさのばらつき', unit: '%', min: 0, max: 100, step: 1, value: 0 },
+  { type: 'range', key: 'jitterAngle', label: '角度のばらつき', unit: '°', min: 0, max: 180, step: 1, value: 0 },
+  { type: 'range', key: 'jitterSeed', label: 'ばらつきの種', unit: '', min: 0, max: 9999, step: 1, integer: true, value: 1 },
+
+  { type: 'group', label: '立体', collapsed: true },
+  { type: 'checkbox', key: 'useDepth', label: '立体にする', value: false },
+  { type: 'select', key: 'solidMode', label: '置く面', value: 'lay', options: [
+    { value: 'lay', label: 'パスの面に寝かす' },
+    { value: 'stand', label: 'パスに直交する面に立てる' },
+    { value: 'twist', label: '立てて進行でねじる' }
+  ] },
+  { type: 'range', key: 'twistTurns', label: '1周のねじれ回数', unit: '回', min: -10, max: 10, step: 0.5, value: 1 },
+  { type: 'select', key: 'depthKind', label: '奥行きの規則', value: 'wave', options: [
+    { value: 'none', label: 'なし' },
+    { value: 'wave', label: '波' },
+    { value: 'ramp', label: '奥から手前へだんだん' },
+    { value: 'alt', label: '手前と奥を交互に' }
+  ] },
+  { type: 'range', key: 'depthCycles', label: '周期数', unit: '回', min: 1, max: 12, step: 1, integer: true, value: 2 },
+  { type: 'range', key: 'depthAmp', label: '振幅', unit: 'px', min: 0, max: 300, step: 1, value: 80 },
+  { type: 'range', key: 'perspective', label: '透視の強さ', unit: '倍', min: 0, max: 5, step: 0.1, value: 0 },
+  { type: 'range', key: 'haze', label: '奥を薄くする', unit: '%', min: 0, max: 100, step: 1, value: 0 },
+  { type: 'range', key: 'brightness', label: '面の明るさ', unit: '%', min: 0, max: 100, step: 1, value: 0 },
+  { type: 'checkbox', key: 'thinFar', label: '奥ほど線を細く', value: false },
+
+  { type: 'group', label: '動き' },
+  /* 再生（Space）と A/B 無しの映像書き出しで動く量。2026-10-13 ユーザー「動きの時に角度の回転も調整できるようにしたい」
+     「カメラというかガイドも回転させたい 立体スプラインみたいに」。ガイドの回転は立体（縦に回す・横に回す）に足すので、
+     速度を入れると「立体にする」を自動で ON にする。 */
+  { type: 'range', key: 'playPeriod', label: '1周にかかる秒数（流れる速さ）', unit: '秒', min: 0.5, max: 60, step: 0.5, value: 6 },
+  { type: 'checkbox', key: 'playReverse', label: '逆向きに流す', value: false },
+  { type: 'range', key: 'playSpin', label: '再生中に向きを回す（1周あたり）', unit: '°', min: -720, max: 720, step: 15, value: 0 },
+  { type: 'range', key: 'playRotY', label: 'ガイドを横に回す速度', unit: '°/秒', min: -180, max: 180, step: 1, value: 0 },
+  { type: 'range', key: 'playRotX', label: 'ガイドを縦に回す速度', unit: '°/秒', min: -90, max: 90, step: 1, value: 0 },
+  { type: 'range', key: 'playWave', label: '奥行きの波を流す速度', unit: '°/秒', min: -360, max: 360, step: 5, value: 0 }
+];
+/* range行（連続変更）だけ⌘Z履歴を300msデバウンスする。select/checkbox/colorは即時
+   （段4・keyの型はspec配列から引く。角度行はspec配列に無いので別扱い＝makeAngleRow側）。 */
+var keyIsContinuous = {};
+spec.forEach(function (item) { if (item.key) keyIsContinuous[item.key] = (item.type === 'range'); });
+
+/* fireOnInit:false — 角度パラメータ(位相・固定角・傾き・縦に回す・横に回す)は
+   下でAngleDial行を差し込むまでvalues[key]が無いため、kit側の初回自動描画は止め、
+   全部の初期化が終わった後（本ファイル末尾のrender()）に1回だけ描画する。 */
+var values = Studio.panel('#panel', spec, function (vals, key) {
+  /* 段6-A-5: 「立体にする」をONにした瞬間、縦横の回転が両方0なら既定の見え方
+     （縦20°・横35°）を入れる（角度行はvalues.set経由ではなくangleRowsで静かに合わせる）。 */
+  if (key === 'useDepth' && vals.useDepth && !(vals.ax || 0) && !(vals.ay || 0) && angleRows.ax && angleRows.ay) {
+    angleRows.ax.setValue(20); values.ax = angleRows.ax.getValue();
+    angleRows.ay.setValue(35); values.ay = angleRows.ay.getValue();
+  }
+  if ((key === 'playRotX' || key === 'playRotY') && (vals[key] || 0) !== 0 && !vals.useDepth) {
+    values.set('useDepth', true);
+    values.set('depthKind', 'none');   // 形は変えず、平らなガイドをそのまま回す
+    if (!(vals.ax || 0) && !(vals.ay || 0) && angleRows.ax && angleRows.ay) { angleRows.ax.setValue(20); values.ax = angleRows.ax.getValue(); angleRows.ay.setValue(35); values.ay = angleRows.ay.getValue(); }
+    Studio.toast('ガイドを回すため「立体にする」を ON にしました（奥行きの規則は なし）');
+    if (solidGroupEl) { solidGroupEl.classList.remove('closed'); var tt = solidGroupEl.querySelector('.sk-grp-ttl'); if (tt) tt.setAttribute('aria-expanded', 'true'); }   // 畳んだ立体群を開いて見せる
+  }
+  render();
+  pushHistory(!keyIsContinuous[key]);
+}, { fireOnInit: false });
+
+/* rowForKey[key] — spec配列の各項目（groupを除く）は必ず1つの.sk-row要素を作る
+   （kit panel()の型ごとの実装がどれも class に "sk-row" を含む）ので、
+   spec配列の並び順とDOM内の.sk-rowの並び順は一致する。ラベル文字列でDOMを探す
+   より頑丈（同じラベルの行が無い・改名しても壊れない）。角度行(AngleDial)を
+   挿入する前に呼ぶこと（挿入後だと.sk-rowの数がspecの項目数とズレる）。 */
+var rowForKey = (function () {
+  var rows = Array.prototype.slice.call(values.mount.querySelectorAll('.sk-row'));
+  var map = {}, ri = 0;
+  spec.forEach(function (item) { if (item.type === 'group') return; map[item.key] = rows[ri]; ri++; });
+  return map;
+})();
+
+/* --- 角度パラメータの循環行（段3-2）--------------------------------------------
+   位相・固定角・傾き・縦に回す・横に回すの5つは、kitのrange行（端で止まる）ではなく
+   AngleDial.createRow()（端の無い帯・0〜360未満に正規化）に差し替える。
+   spec配列からは外してあるので、panel構築後にDOMを直接同じ場所へ挿入する。 ------- */
+function findGroupByLabel(label) {
+  var groups = values.mount.querySelectorAll('.sk-grp');
+  for (var i = 0; i < groups.length; i++) {
+    var ttl = groups[i].querySelector(':scope > .sk-grp-ttl');
+    if (ttl && ttl.textContent === label) return groups[i];
+  }
+  return null;
+}
+var guideGroupEl = findGroupByLabel('ガイド');
+var objGroupEl = findGroupByLabel('並べるもの');
+var placeGroupEl = findGroupByLabel('並べ方');
+var orientGroupEl = findGroupByLabel('向きと大きさ');
+var solidGroupEl = findGroupByLabel('立体');
+var placeSelectEl = rowForKey.placeMode && rowForKey.placeMode.querySelector('select');
+var sizeSelectEl = rowForKey.sizeMode && rowForKey.sizeMode.querySelector('select');
+var objKindSelectEl = rowForKey.objKind && rowForKey.objKind.querySelector('select');
+
+/* 貼り付け欄（HTML静的markup。元は#panelの直下）を、5-1が指定する群の先頭
+   （タイトルの直後）へ移す。DOMノードのappendChild/insertBeforeは自動的に
+   元の親から外れるので、HTML側の位置は変えなくてよい。 */
+var guideBoxEl = document.getElementById('guideBox');
+var objBoxEl = document.getElementById('objBox');
+if (guideGroupEl) guideGroupEl.insertBefore(guideBoxEl, guideGroupEl.children[1] || null);
+if (objGroupEl) objGroupEl.insertBefore(objBoxEl, objGroupEl.children[1] || null);
+
+var angleRows = {};
+function makeAngleRow(key, label, unit) {
+  var row = AngleDial.createRow({
+    key: key, label: label, unit: unit,
+    onChange: function (v) { values[key] = v; render(); pushHistory(false); }
+  });
+  values[key] = row.getValue();
+  angleRows[key] = row;
+  return row;
+}
+
+// 向き群: 向き(select)の次に固定角、その次に傾き、その後ろに1周で回る回数
+var spinTurnsRow = rowForKey.spinTurns;
+var fixedAngleRow = makeAngleRow('fixedAngle', '固定角', '°');
+var tiltRow = makeAngleRow('tilt', '傾き', '°');
+if (orientGroupEl && spinTurnsRow) {
+  orientGroupEl.insertBefore(fixedAngleRow.el, spinTurnsRow);
+  orientGroupEl.insertBefore(tiltRow.el, spinTurnsRow);
+}
+
+// 立体群: 周期数の次に位相、振幅の次に縦に回す・横に回す（→透視の強さへ続く）
+var depthAmpRow = rowForKey.depthAmp;
+var phaseRow = makeAngleRow('depthPhase', '波の開始位置', '°');
+if (solidGroupEl && depthAmpRow) solidGroupEl.insertBefore(phaseRow.el, depthAmpRow);
+var perspectiveRow = rowForKey.perspective;
+var axRow = makeAngleRow('ax', '縦に回す', '°');
+var ayRow = makeAngleRow('ay', '横に回す', '°');
+if (solidGroupEl && perspectiveRow) {
+  solidGroupEl.insertBefore(axRow.el, perspectiveRow);
+  solidGroupEl.insertBefore(ayRow.el, perspectiveRow);
+}
+
+/* --- 全部振る（段6-A-6・上部バー）＋振り直す（ばらつき群・種だけ変える） ------------
+   置き方・向き・大きさの変化・パスからの距離・ばらつき・色 の値を新しい種で乱数に
+   入れ替える。⌘Z（pushHistory）で1回で戻せる。角度パラメータ(固定角・傾き)はvalues.set
+   ではなくangleRowsで合わせる（他の角度行と同じ「静かに合わせる」作法）。 --------- */
+var specByKey = {};
+spec.forEach(function (item) { if (item.key) specByKey[item.key] = item; });
+function shuffleValueFor(rng, key) {
+  var item = specByKey[key];
+  if (!item) return;
+  if (item.type === 'range') {
+    var v = rng.range(item.min, item.max);
+    v = item.integer ? Math.round(v) : Math.round(v / (item.step || 1)) * (item.step || 1);
+    values.set(key, Math.max(item.min, Math.min(item.max, v)));
+  } else if (item.type === 'select') {
+    var opts = item.options.filter(function (o) { return o.value !== 'depth' || values.useDepth; });
+    values.set(key, rng.pick(opts).value);
+  } else if (item.type === 'checkbox') {
+    values.set(key, rng.chance());
+  } else if (item.type === 'color') {
+    values.set(key, '#' + Math.floor(rng() * 0x1000000).toString(16).padStart(6, '0'));
+  }
+}
+function shuffleAll() {
+  var rng = Studio.rng(Math.floor(Math.random() * 0xffffffff) + 1);
+  ['placeMode', 'count', 'distance', 'curvatureK', 'startShift'].forEach(function (k) { shuffleValueFor(rng, k); });
+  var rs = Math.round(rng.range(0, 60)), re = Math.round(rng.range(rs + 15, 100));
+  values.set('rangeStart', rs); values.set('rangeEnd', re);
+  shuffleValueFor(rng, 'orientMode');
+  if (angleRows.fixedAngle) { angleRows.fixedAngle.setValue(rng.range(0, 360)); values.fixedAngle = angleRows.fixedAngle.getValue(); }
+  if (angleRows.tilt) { angleRows.tilt.setValue(rng.range(0, 360)); values.tilt = angleRows.tilt.getValue(); }
+  ['spinTurns', 'mirrorAlternate', 'sizeMode', 'sizeGain',
+    'offset', 'offsetWaveAmp', 'offsetWaveCycles', 'columns', 'columnGap',
+    'jitterPos', 'jitterSize', 'jitterAngle', 'jitterSeed',
+    'colorKind', 'color2'].forEach(function (k) { shuffleValueFor(rng, k); });
+  render();
+  pushHistory(true);
+  Studio.toast('全部振りました');
+}
+function reshuffleJitterSeed() {
+  var rng = Studio.rng(Math.floor(Math.random() * 0xffffffff) + 1);
+  values.set('jitterSeed', Math.round(rng.range(0, 9999)));
+  render();
+  pushHistory(true);
+  Studio.toast('ばらつきの種を振り直しました');
+}
+var shuffleAllBtn = document.createElement('button');
+shuffleAllBtn.type = 'button'; shuffleAllBtn.className = 'btn';
+shuffleAllBtn.textContent = '全部振る';
+shuffleAllBtn.title = '種を変えて置き方・向き・大きさの変化・パスからの距離・ばらつき・色をまとめて変える（⌘Zで戻る）';
+shuffleAllBtn.setAttribute('aria-label', '全部振る');
+shuffleAllBtn.addEventListener('click', shuffleAll);
+var barFillEl = document.querySelector('#bar .fill');
+if (barFillEl) barFillEl.before(shuffleAllBtn); else document.getElementById('bar').appendChild(shuffleAllBtn);
+var jitterGroupEl = findGroupByLabel('ばらつき');
+var reshuffleBtn = document.createElement('button');
+reshuffleBtn.type = 'button'; reshuffleBtn.className = 'btn';
+reshuffleBtn.textContent = '振り直す';
+reshuffleBtn.title = '種だけ変えてばらつきをやり直す';
+reshuffleBtn.addEventListener('click', reshuffleJitterSeed);
+if (jitterGroupEl) jitterGroupEl.appendChild(reshuffleBtn);
+
+/* --- 既定の再生（段6-A-4）: kitのtogglePlayはA/B未記録だとopts.playへ委譲する
+   （呼ぶたびに開始/停止をトグル）。「開始位置のずらし」を0→100%でループさせる
+   （往復ではなく一方向に流れ続ける方が沿わせの見た目として自然）。 ------------------ */
+var defaultPlayRunning = false, defaultPlayRaf = null, defaultPlayT0 = 0, defaultPlayBeforeShift = 0;
+var DEFAULT_PLAY_PERIOD = 6; // 秒
+var playSpinRad = 0;   // 再生中に足す向きの回転（rad）。停止で 0 に戻す
+var playRotAx = 0, playRotAy = 0;   // 再生中に足すガイドの回転（°）。停止で 0 に戻す
+var playWaveOff = 0;   // 再生中に足す奥行きの波の位相（°）
+function axNow() { return (values.ax || 0) + playRotAx; }
+function ayNow() { return (values.ay || 0) + playRotAy; }
+function defaultPlayTick(now) {
+  if (!defaultPlayRunning) return;
+  var t = (now - defaultPlayT0) / 1000;
+  var P = values.playPeriod || DEFAULT_PLAY_PERIOD;
+  var u = (t % P) / P; if (values.playReverse) u = 1 - u;
+  values.startShift = (defaultPlayBeforeShift + u * 100) % 100;   // 表示は触らない（再生中にスライダーへ小数の羅列を出さない）
+  playSpinRad = u * (values.playSpin || 0) * Math.PI / 180;
+  playRotAx = (values.playRotX || 0) * t; playRotAy = (values.playRotY || 0) * t; playWaveOff = (values.playWave || 0) * t;
+  render();
+  defaultPlayRaf = requestAnimationFrame(defaultPlayTick);
+}
+function toggleDefaultPlay() {
+  if (defaultPlayRunning) {
+    defaultPlayRunning = false;
+    if (defaultPlayRaf) cancelAnimationFrame(defaultPlayRaf);
+    defaultPlayRaf = null;
+    values.set('startShift', defaultPlayBeforeShift);
+    playSpinRad = 0; playRotAx = 0; playRotAy = 0; playWaveOff = 0;
+    render();
+    return;
+  }
+  if (!state.guideFlat) { Studio.toast('先にガイドを読み込んでください', { kind: 'error', sticky: true }); return; }
+  defaultPlayBeforeShift = values.startShift;
+  defaultPlayRunning = true;
+  defaultPlayT0 = performance.now();
+  defaultPlayRaf = requestAnimationFrame(defaultPlayTick);
+}
+
+/* --- 並べるものの形select: 貼り付け中は「貼ったもの」と表示してselectを無効化
+   （5-1「貼り付け中は『貼ったもの』と表示してselectを無効」）。実際のobjKindの
+   値はDOM操作だけで変えない（貼り付けを外したら元の選択へ戻る）。 --------------- */
+function updateObjKindUI() {
+  if (!objKindSelectEl) return;
+  var pastedOpt = objKindSelectEl.querySelector('option[value="__pasted__"]');
+  if (state.objText) {
+    if (!pastedOpt) {
+      pastedOpt = document.createElement('option');
+      pastedOpt.value = '__pasted__'; pastedOpt.textContent = '貼ったもの'; pastedOpt.disabled = true;
+      objKindSelectEl.appendChild(pastedOpt);
+    }
+    objKindSelectEl.value = '__pasted__';
+    objKindSelectEl.disabled = true;
+  } else {
+    if (pastedOpt) pastedOpt.remove();
+    objKindSelectEl.disabled = false;
+    objKindSelectEl.value = values.objKind;
+  }
+}
+
+/* --- 行の表示条件（5-1・DOM非依存ではなく表示専用のDOM操作）。値が変わるたびに
+   render()の先頭から呼ぶ（=すべての状態変化後に必ず1回揃える）。選んでいない
+   設定は表示しない（原則。5-1冒頭）。 ------------------------------------------ */
+function optionEl(selectEl, val) {
+  if (!selectEl) return null;
+  for (var i = 0; i < selectEl.options.length; i++) if (selectEl.options[i].value === val) return selectEl.options[i];
+  return null;
+}
+/* .sk-row は studio2.css が display:flex を指定しており、hidden属性だけでは
+   UA既定の[hidden]{display:none}に勝ててしまい消えない（クラスの方が優先される）。
+   hidden属性（意味づけ・支援技術向け）とinline style（確実に消す）の両方を立てる。 */
+function setRowVisible(row, visible) {
+  if (!row) return;
+  row.hidden = !visible;
+  row.style.display = visible ? '' : 'none';
+}
+function syncVisibility() {
+  var v = values;
+  var objText = !!state.objText;
+
+  setRowVisible(rowForKey.showAnchors, v.showGuide);
+
+  setRowVisible(rowForKey.circleDiameter, !objText && v.objKind === 'circle');
+  setRowVisible(rowForKey.segmentLength, !objText && (v.objKind === 'segment' || v.objKind === 'arrow'));
+  setRowVisible(rowForKey.objSize, objText);
+  setRowVisible(rowForKey.useElementsInOrder, objText);
+
+  setRowVisible(rowForKey.count, v.placeMode === 'count' || v.placeMode === 'curvature' || v.placeMode === 'depth');
+  setRowVisible(rowForKey.distance, v.placeMode === 'distance');
+  setRowVisible(rowForKey.curvatureK, v.placeMode === 'curvature');
+
+  setRowVisible(fixedAngleRow.el, v.orientMode === 'fixed');
+  setRowVisible(tiltRow.el, v.orientMode === 'tangent');
+
+  setRowVisible(rowForKey.sizeGain, v.sizeMode !== 'constant');
+
+  setRowVisible(rowForKey.offsetWaveCycles, (v.offsetWaveAmp || 0) > 0);
+  setRowVisible(rowForKey.columnGap, (v.columns || 1) > 1);
+
+  setRowVisible(rowForKey.useObjectColor, objText);
+  var pastedHasStroke = !!(objText && (function () { var pr = objParsedNow(); return pr && pr.paths.some(function (q) { return q.stroke && q.stroke !== 'none'; }); })());
+  setRowVisible(rowForKey.strokeWidth, (!!colorState.strokeColor && colorState.strokeColor !== 'none') || (!objText && (v.objKind === 'segment' || v.objKind === 'arrow')) || (pastedHasStroke && v.useObjectColor));
+  setRowVisible(rowForKey.color2, v.colorKind !== 'none');
+
+  var anyJitter = (v.jitterPos || 0) > 0 || (v.jitterSize || 0) > 0 || (v.jitterAngle || 0) > 0;
+  setRowVisible(rowForKey.jitterSeed, anyJitter);
+
+  var solidOn = !!v.useDepth;
+  setRowVisible(rowForKey.solidMode, solidOn);
+  setRowVisible(rowForKey.twistTurns, solidOn && v.solidMode === 'twist');
+  setRowVisible(rowForKey.depthKind, solidOn);
+  setRowVisible(rowForKey.depthCycles, solidOn);
+  setRowVisible(phaseRow.el, solidOn);
+  setRowVisible(rowForKey.depthAmp, solidOn);
+  setRowVisible(rowForKey.playWave, solidOn && v.depthKind === 'wave');
+  setRowVisible(axRow.el, solidOn);
+  setRowVisible(ayRow.el, solidOn);
+  setRowVisible(rowForKey.perspective, solidOn);
+  setRowVisible(rowForKey.haze, solidOn);
+  setRowVisible(rowForKey.brightness, solidOn && v.solidMode !== 'lay');
+  setRowVisible(rowForKey.thinFar, solidOn);
+
+  // 置き方/大きさの「奥行き」系は立体ONのときだけ選べる（段3から継続。選択中にOFFへ
+  // 切り替えたら一定（個数）／一定 に戻す）。
+  var placeDepthOpt = optionEl(placeSelectEl, 'depth');
+  if (placeDepthOpt) { placeDepthOpt.hidden = !solidOn; placeDepthOpt.disabled = !solidOn; }
+  if (!solidOn && v.placeMode === 'depth') values.set('placeMode', 'count');
+  var sizeDepthOpt = optionEl(sizeSelectEl, 'depth');
+  if (sizeDepthOpt) { sizeDepthOpt.hidden = !solidOn; sizeDepthOpt.disabled = !solidOn; }
+  if (!solidOn && v.sizeMode === 'depth') values.set('sizeMode', 'constant');
+
+  updateObjKindUI();
+}
+syncVisibility();
+
+/* --- ⌘Z／⇧⌘Z（006_ツールの規格 §7・KEY-00・段5でStudio.keysへ置き換え）--------
+   スナップショット = {values: panelの全values（角度5キー含む）, guideSvg, objSvg}。
+   連続変更（range・角度帯ドラッグ）は300msデバウンスでまとめ、select/checkbox/
+   貼り付け確定は即時に1つ積む（keyIsContinuous・makeAngleRowのonChangeで振り分け）。
+   undo/redo中はrestoringHistoryで自分自身の変更をhistoryへ積み返さない。
+   キー入力の受付・入力欄ガード・⌘Zの割り当てはStudio.keysに任せる
+   （historyを渡すとStudio.keys内部でhist.undo()/redo()→opts.applyを自動で呼ぶ）。 */
+var ANGLE_KEYS = ['depthPhase', 'fixedAngle', 'tilt', 'ax', 'ay'];
+var hist = Studio.history(100);
+var histTimer = null;
+var restoringHistory = false;
+function snapshotState() {
+  var vals = {};
+  Object.keys(values).forEach(function (k) { vals[k] = values[k]; });
+  // 段6: 色（塗り・線・背景）は上部バーへ移り values の外（colorState）にあるため、
+  // ⌘Z の履歴にも別枠で積む。
+  return { values: vals, guideSvg: state.guideText, objSvg: state.objText,
+    colors: { fillColor: colorState.fillColor, strokeColor: colorState.strokeColor, bg: colorState.bg } };
+}
+function pushHistory(immediate) {
+  if (restoringHistory) return;
+  clearTimeout(histTimer); histTimer = null;
+  if (immediate) { hist.push(snapshotState()); return; }
+  histTimer = setTimeout(function () { hist.push(snapshotState()); histTimer = null; }, 300);
+}
+function applyHistoryState(snap) {
+  if (!snap) return;
+  restoringHistory = true;
+  if (snap.guideSvg) { loadGuide(snap.guideSvg); guidePasteEl.value = snap.guideSvg; }
+  if (snap.objSvg) { loadObject(snap.objSvg); objPasteEl.value = snap.objSvg; }
+  else { clearObjectOverride(); objPasteEl.value = ''; }
+  var vals = snap.values || {};
+  Object.keys(vals).forEach(function (k) {
+    if (ANGLE_KEYS.indexOf(k) >= 0) {
+      if (angleRows[k]) { angleRows[k].setValue(vals[k]); values[k] = angleRows[k].getValue(); }
+    } else {
+      values.set(k, vals[k]);
+    }
+  });
+  if (snap.colors) {
+    colorState.fillColor = snap.colors.fillColor; colorState.strokeColor = snap.colors.strokeColor; colorState.bg = snap.colors.bg;
+    sb.colors.set('fillColor', colorState.fillColor); sb.colors.set('strokeColor', colorState.strokeColor); sb.colors.set('bg', colorState.bg);
+  }
+  restoringHistory = false;
+  render();
+}
+/* --- ショートカット（§7・KEY-00: キーは Studio.keys に集約する。keydown を自前で書かない）。
+   ⌘Z/⇧⌘Zは履歴、⌘Cはコピー、Xは塗り→線→背景の順に色の対象を切替、Spaceは上部バーの
+   再生、EscはStudio.stageBarの映像ダイアログを閉じる段を先頭にする。 --------------------- */
+Studio.keys({
+  history: hist, apply: applyHistoryState,
+  copy: doCopySVG,
+  toggleColorTarget: function () {
+    var order = ['fillColor', 'strokeColor', 'bg'];
+    var idx = order.indexOf(sb.colors.getTarget());
+    sb.colors.setTarget(order[(idx + 1) % order.length]);
+  },
+  play: sb.togglePlay,
+  escSteps: [sb.closeDialog]
+});
+
+/* --- 貼り付け欄（段6-A-2「貼り付け欄の壁」） ---------------------------------
+   既定で折りたたみ。畳んだ状態は1行の要約＋「SVGを貼る」ボタン。押すとtextarea＋
+   確定ボタンが開く。確定・内蔵へ戻す・ドロップで反映した後はまた畳む（次の作業へ
+   進みやすいよう、貼り付け欄を開けっぱなしにしない）。 --------------------------- */
+var guidePasteEl = document.getElementById('guidePaste');
+var objPasteEl = document.getElementById('objPaste');
+var guideSummaryRowEl = document.getElementById('guideSummaryRow');
+var guideFieldsEl = document.getElementById('guideFields');
+var guideSummaryTextEl = document.getElementById('guideSummaryText');
+var objSummaryRowEl = document.getElementById('objSummaryRow');
+var objFieldsEl = document.getElementById('objFields');
+var objSummaryTextEl = document.getElementById('objSummaryText');
+var OBJ_KIND_LABEL = { circle: '円', segment: '線分', arrow: '矢印' };
+function setPasteCollapsed(fieldsEl, summaryRowEl, collapsed) {
+  fieldsEl.hidden = collapsed; fieldsEl.style.display = collapsed ? 'none' : '';
+  summaryRowEl.hidden = !collapsed; summaryRowEl.style.display = collapsed ? '' : 'none';
+}
+function updatePasteSummaries() {
+  if (guideSummaryTextEl) {
+    guideSummaryTextEl.textContent = state.guideSub
+      ? ('ガイド: ' + (state.guideSub.closed ? '閉じた線' : '開いた線') + '・' + (state.guideSub.anchors ? state.guideSub.anchors.length : 0) + 'アンカー')
+      : 'ガイド: 未設定';
+  }
+  if (objSummaryTextEl) {
+    objSummaryTextEl.textContent = state.objText
+      ? '並べるもの: 貼ったもの'
+      : ('並べるもの: ' + (OBJ_KIND_LABEL[values.objKind] || values.objKind) + '（内蔵）');
+  }
+}
+guidePasteEl.value = GUIDE_DEFAULT_SVG;
+setPasteCollapsed(guideFieldsEl, guideSummaryRowEl, true);
+setPasteCollapsed(objFieldsEl, objSummaryRowEl, true);
+document.getElementById('guideOpenBtn').addEventListener('click', function () { setPasteCollapsed(guideFieldsEl, guideSummaryRowEl, false); });
+document.getElementById('objOpenBtn').addEventListener('click', function () { setPasteCollapsed(objFieldsEl, objSummaryRowEl, false); });
+document.getElementById('loadGuideBtn').addEventListener('click', function () {
+  if (loadGuide(guidePasteEl.value)) { render(); pushHistory(true); setPasteCollapsed(guideFieldsEl, guideSummaryRowEl, true); }
+});
+document.getElementById('loadObjBtn').addEventListener('click', function () {
+  if (loadObject(objPasteEl.value)) { render(); pushHistory(true); setPasteCollapsed(objFieldsEl, objSummaryRowEl, true); }
+});
+document.getElementById('clearObjBtn').addEventListener('click', function () {
+  clearObjectOverride();
+  objPasteEl.value = '';
+  clearError();
+  render();
+  pushHistory(true);
+  setPasteCollapsed(objFieldsEl, objSummaryRowEl, true);
+});
+
+/* --- 各欄へのドロップ（段6-A-1「欄にドロップ＝その欄の対象にする」）。封筒の有無は
+   問わず、ドロップしたSVGのテキストをそのままその欄の対象として読み込む。 -------- */
+function wireBoxDrop(boxEl, onFile) {
+  boxEl.addEventListener('dragover', function (e) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; boxEl.classList.add('dragover'); });
+  boxEl.addEventListener('dragleave', function () { boxEl.classList.remove('dragover'); });
+  boxEl.addEventListener('drop', function (e) {
+    boxEl.classList.remove('dragover');
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f || !/\.svg$/i.test(f.name)) return;
+    e.preventDefault(); e.stopPropagation();
+    var r = new FileReader();
+    r.onload = function () { onFile(r.result); };
+    r.onerror = function () { Studio.toast('ファイルを読み込めませんでした', { kind: 'error', sticky: true }); };
+    r.readAsText(f);
+  });
+}
+wireBoxDrop(document.getElementById('guideBox'), function (text) {
+  if (loadGuide(text)) { guidePasteEl.value = text; render(); pushHistory(true); setPasteCollapsed(guideFieldsEl, guideSummaryRowEl, true); Studio.toast('ガイドにしました'); }
+});
+wireBoxDrop(document.getElementById('objBox'), function (text) {
+  if (loadObject(text)) { objPasteEl.value = text; render(); pushHistory(true); setPasteCollapsed(objFieldsEl, objSummaryRowEl, true); Studio.toast('並べるものにしました'); }
+});
+
+/* --- 書き出し（006_ツールの規格 §1〜§4） --------------------------------- */
+function fileBase() { return Studio.fname(TOOL, values.placeMode + '-' + values.count); }
+function memoText() { return bar.memoText(); }
+function captionLines() {
+  var parts = [
+    '形 ' + values.objKind, '置き方 ' + values.placeMode,
+    '個数 ' + values.count + '個', '奥行き ' + values.depthKind,
+    '振幅 ' + values.depthAmp + 'px', '向き ' + values.orientMode, '大きさ ' + values.sizeMode
+  ];
+  return [TOOL + ' · ' + PJ + ' — ' + LAW, parts.join(' · '), 'メモ: ' + memoText()];
+}
+function exportMeta() {
+  var params = {
+    guideSvg: state.guideText, objSvg: state.objText,
+    objKind: values.objKind, circleDiameter: values.circleDiameter, segmentLength: values.segmentLength, objSize: values.objSize,
+    useObjectColor: values.useObjectColor, fillColor: colorState.fillColor, strokeColor: colorState.strokeColor, strokeWidth: values.strokeWidth,
+    bg: colorState.bg,
+    colorKind: values.colorKind, color2: values.color2,
+    useElementsInOrder: values.useElementsInOrder,
+    placeMode: values.placeMode, count: values.count, distance: values.distance, curvatureK: values.curvatureK,
+    useDepth: values.useDepth,
+    depthKind: values.depthKind, depthCycles: values.depthCycles, depthPhase: values.depthPhase, depthAmp: values.depthAmp,
+    ax: values.ax, ay: values.ay,
+    orientMode: values.orientMode, fixedAngle: values.fixedAngle, mirrorAlternate: values.mirrorAlternate,
+    sizeMode: values.sizeMode, sizeGain: values.sizeGain,
+    startShift: values.startShift, rangeStart: values.rangeStart, rangeEnd: values.rangeEnd,
+    offset: values.offset, offsetWaveAmp: values.offsetWaveAmp, offsetWaveCycles: values.offsetWaveCycles,
+    tilt: values.tilt, spinTurns: values.spinTurns, playSpin: values.playSpin, playRotX: values.playRotX, playRotY: values.playRotY, playPeriod: values.playPeriod, playReverse: values.playReverse, playWave: values.playWave, columns: values.columns, columnGap: values.columnGap,
+    jitterSeed: values.jitterSeed, jitterPos: values.jitterPos, jitterSize: values.jitterSize, jitterAngle: values.jitterAngle,
+    showGuide: values.showGuide, showAnchors: values.showAnchors,
+    solidMode: values.solidMode, twistTurns: values.twistTurns,
+    perspective: values.perspective, haze: values.haze, brightness: values.brightness, thinFar: values.thinFar
+  };
+  var meta = { tool: TOOL, pj: PJ, law: LAW, seed: null, memo: memoText(), toolVersion: TOOL_VERSION, paramsVersion: PARAMS_VERSION, params: params };
+  if (bar.captionOn()) meta.caption = captionLines();
+  return meta;
+}
+/* includeBg（既定true）: §13 VID-01「書き出しは背景込み」・§8 COPY-01「⌘C/コピーは
+   地色を含めない」。書き出しの範囲＝版面（frameBox。§0）。 */
+function buildExportSVG(includeBg) {
+  if (includeBg === undefined) includeBg = true;
+  var vb = compute2DViewBox(state.guideFlat); // 透視のカメラ距離fの基準（版面とは独立）
+  var fb = computeFrameBox();
+  var fit = computeArtFit(state.guideFlat);
+  var svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('xmlns', SVGNS);
+  svg.setAttribute('viewBox', fb.x + ' ' + fb.y + ' ' + fb.w + ' ' + fb.h);
+  svg.setAttribute('width', fb.w); svg.setAttribute('height', fb.h);
+  var art = document.createElementNS(SVGNS, 'g'); art.id = 'art';
+  if (includeBg && colorState.bg && colorState.bg !== 'none') {
+    var bgRect = document.createElementNS(SVGNS, 'rect');
+    bgRect.setAttribute('x', fb.x); bgRect.setAttribute('y', fb.y);
+    bgRect.setAttribute('width', fb.w); bgRect.setAttribute('height', fb.h);
+    bgRect.setAttribute('fill', colorState.bg);
+    art.appendChild(bgRect);
+  }
+  var fitArt = document.createElementNS(SVGNS, 'g');
+  fitArt.setAttribute('transform', 'matrix(' + fit.scale + ' 0 0 ' + fit.scale + ' ' + fit.tx + ' ' + fit.ty + ')');
+  var placements = computePlacements();
+  var objPaths = computeObjPaths();
+  var style = computeObjStyle();
+  drawArtInto(fitArt, placements, objPaths, style, vb, fit.scale > 1e-9 ? 1 / fit.scale : 1);
+  art.appendChild(fitArt);
+  svg.appendChild(art);
+  svg.style.cssText = 'position:fixed;left:-99999px;top:0';
+  document.body.appendChild(svg);
+  return svg;
+}
+function doExportSVG() {
+  if (!state.guideFlat) { Studio.toast('先にガイドを読み込んでください', { kind: 'error', sticky: true }); return; }
+  var svg = buildExportSVG(true);
+  var name = fileBase();
+  Studio.exportSVG(svg, { name: name, standard: true, meta: exportMeta() });
+  document.body.removeChild(svg);
+  Studio.toast(name + '.svg');
+}
+function doCopySVG() {
+  if (!state.guideFlat) { Studio.toast('先にガイドを読み込んでください', { kind: 'error', sticky: true }); return; }
+  var svg = buildExportSVG(false);
+  var text = Studio.serializeSVG(svg, { standard: true, meta: exportMeta() });
+  document.body.removeChild(svg);
+  Studio.copySVG(text).then(function (result) {
+    Studio.toast(Studio.copyResultMessage(result));
+  }).catch(function (e) {
+    Studio.toast(e.message || 'コピーできませんでした', { kind: 'error', sticky: true });
+  });
+}
+
+/* --- 上部バー共通操作（Studio.stageBar・§13 VID-02/03）用の橋渡し ------------------
+   getParams/apply: パネルの数値・角度行の値（values）＋色（colorState）のスナップショット。
+   frame: 1コマ分のSVG文字列。A/Bが記録されていればparamsを一時的に当ててbuildExportSVG(true)
+   を呼び、終わったら元に戻す。A/B無し（params:null）は今の状態をそのまま1コマとして返す
+   （このツールは立体スプラインのような「自前の回転再生」を持たないため）。 --------------- */
+function motionParams() {
+  var p = {};
+  Object.keys(values).forEach(function (k) { p[k] = values[k]; });
+  p.fillColor = colorState.fillColor; p.strokeColor = colorState.strokeColor; p.bg = colorState.bg;
+  return p;
+}
+function applyParamsToState(p) {
+  Object.keys(p).forEach(function (k) {
+    if (k === 'fillColor' || k === 'strokeColor' || k === 'bg') { colorState[k] = p[k]; }
+    else if (ANGLE_KEYS.indexOf(k) >= 0) { if (angleRows[k]) { angleRows[k].setValue(p[k]); values[k] = angleRows[k].getValue(); } }
+    else if (Object.prototype.hasOwnProperty.call(values, k)) { values.set(k, p[k]); }
+  });
+}
+function applyMotionParams(p) { applyParamsToState(p); render(); }
+/* A/B 無しの映像書き出し（2026-10-13 ユーザー「カクツクのがひどい」）: 以前は「今の画面」をそのまま1コマにしていたため、
+   再生中の rAF が壁時計で進めた値を符号化の遅い間隔で拾い、コマごとの進み幅がばらついていた。
+   159・157 と同じく、コマの時刻 t から決定的に作る。1周＝書き出しの秒数（ループ映像が継ぎ目なく繋がる）。 */
+function frameFromOwnMotion(t, dur) {
+  var period = values.playPeriod || DEFAULT_PLAY_PERIOD;   // 画面の再生と同じ速さ（2026-10-14 流れる速さをパネルへ）
+  var u = ((t / period) % 1 + 1) % 1; if (values.playReverse) u = 1 - u;
+  var baseShift = defaultPlayRunning ? defaultPlayBeforeShift : values.startShift;
+  var beforeShift = values.startShift, beforeSpin = playSpinRad, beforeAx = playRotAx, beforeAy = playRotAy, beforeWave = playWaveOff;
+  values.startShift = (baseShift + u * 100) % 100;
+  playSpinRad = u * (values.playSpin || 0) * Math.PI / 180;
+  playRotAx = (values.playRotX || 0) * t; playRotAy = (values.playRotY || 0) * t; playWaveOff = (values.playWave || 0) * t;
+  var svg = buildExportSVG(true);
+  var text = Studio.serializeSVG(svg, { standard: true });
+  document.body.removeChild(svg);
+  values.startShift = beforeShift; playSpinRad = beforeSpin; playRotAx = beforeAx; playRotAy = beforeAy; playWaveOff = beforeWave;
+  return text;
+}
+function frameForExport(ctx) {
+  if (!state.guideFlat) throw new Error('先にガイドを読み込んでください');
+  if (!ctx.params) return frameFromOwnMotion(ctx.t, ctx.dur);
+  var before = motionParams();
+  applyParamsToState(ctx.params); // render()は呼ばない（書き出し中に画面を毎コマ更新しない）
+  var svg = buildExportSVG(true);
+  var text = Studio.serializeSVG(svg, { standard: true });
+  document.body.removeChild(svg);
+  applyParamsToState(before);
+  return text;
+}
+
+/* --- 動きと空間への展開への出口（141_動きと空間への展開/scene-json.md「scene/1」契約）------
+   配置1個=1 path（実際の塗り色）をshapes・unitsの両方へ。unitsは輪郭を直線分割した
+   頂点列＋step（並び順）＋z（奥行き・任意項目）。器（150_動きの書き出し）はunitsを図形ごとに
+   動かし・浮かせる。rule には全設定を保存するだけ（読むアダプターは深さ3で作る）。 --- */
+function objColorFor(style) {
+  if (style.fill && style.fill !== 'none') return style.fill;
+  if (style.stroke && style.stroke !== 'none') return style.stroke;
+  return FILL_COLOR;
+}
+function buildSceneJSON() {
+  if (!state.guideFlat) return null;
+  var vb = compute2DViewBox(state.guideFlat); // 透視のカメラ距離fの基準（版面とは独立）
+  var fit = computeArtFit(state.guideFlat);
+  var shapeScale = fit.scale > 1e-9 ? 1 / fit.scale : 1;
+  var placements = computePlacements();
+  var objPaths = scaleSubs(computeObjPaths(), shapeScale);
+  var style = computeObjStyle();
+  var color = objColorFor(style);
+  var solidOn = !!values.useDepth;
+  var plane = solidPlaneFor(values);
+  var proj = solidOn ? solidProjOpts(vb) : null;
+  var elements = objElementsList();
+  var colorsArr = elements ? null : computePlacementColors(placements, style);
+  var ordered = placements.slice().sort(function (a, b) {
+    return (solidOn ? (a.sortZ || 0) : (a.z || 0)) - (solidOn ? (b.sortZ || 0) : (b.z || 0));
+  });
+  var shapes = [], units = [];
+  ordered.forEach(function (p, idx) {
+    var id = 'placement-' + idx;
+    var thisObjPaths = objPaths, baseColor = color;
+    if (elements) {
+      var elem = elements[Sweep.objectIndexFor(p.seqIndex || 0, elements.length)];
+      thisObjPaths = scaleSubs(Sweep.parsePath(elem.d), shapeScale);
+      baseColor = objColorFor(styleForElement(elem));
+    } else if (colorsArr) {
+      baseColor = colorsArr[p.seqIndex != null ? p.seqIndex : idx];
+    }
+    var thisColor = baseColor, d, pts;
+    if (solidOn) {
+      thisColor = Sweep.shadeColor(baseColor, { depthNorm: p.depthNorm, haze: values.haze, facing: 1, brightness: values.brightness, bg: '#ffffff' });
+      d = Sweep.bakeObject3D(thisObjPaths, p, { plane: plane, twist: p.twistRad, proj: proj });
+      pts = Sweep.bakeFlatten3D(thisObjPaths, p, { plane: plane, twist: p.twistRad, proj: proj }, 1);
+    } else {
+      d = Sweep.bakeObject(thisObjPaths, p);
+      pts = Sweep.bakeFlatten(thisObjPaths, p, 1);
+    }
+    /* 版面フィット（位置）をここで掛ける（局所形状は上のshapeScaleで打ち消し済みなので
+       正味の大きさは変わらない・版面フィットの規則）。dはSweep.parsePath→bakeObjectの
+       単純な2Dアフィン再適用（fmt()が生成する'M/L/C'＋数値だけの形式に対して厳密）。 */
+    d = Sweep.bakeObject(Sweep.parsePath(d), { x: fit.tx, y: fit.ty, angle: 0, scale: fit.scale });
+    pts = pts.map(function (pt) { return [pt[0] * fit.scale + fit.tx, pt[1] * fit.scale + fit.ty]; });
+    shapes.push({ id: id, color: thisColor, d: d });
+    units.push({ id: id, color: thisColor, pts: pts, step: idx, z: solidOn ? (p.sortZ || 0) : (p.z || 0) });
+  });
+  return {
+    tool: TOOL, pj: PJ,
+    box: [fit.artboard.x, fit.artboard.y, fit.artboard.w, fit.artboard.h],
+    style: { bg: (colorState.bg && colorState.bg !== 'none') ? colorState.bg : 'none' }, // 段6: 背景色を器へ通す
+    shapes: shapes, units: units,
+    steps: { count: placements.length },
+    rule: exportMeta().params,
+    meta: exportMeta()
+  };
+}
+function doExportSceneJSON() {
+  var scene = buildSceneJSON();
+  if (!scene) { Studio.toast('先にガイドを読み込んでください', { kind: 'error', sticky: true }); return; }
+  var name = fileBase();
+  Studio.sceneExport(scene, { name: name + '_scene' });
+  Studio.toast(name + '_scene.json を書き出しました（動きの書き出しで開けます）');
+}
+
+/* --- 封筒からの復元（006_ツールの規格 §1 RESTORE-01） ------------------------ */
+/* 角度パラメータ(位相・固定角・傾き・縦に回す・横に回す)はkit外のAngleDial行なので
+   values.set()（kitのsetters経由）ではなく angleRows[key].setValue() で静かに合わせる。
+   ANGLE_KEYSは⌘Z履歴（applyHistoryState）と共有（上の「⌘Z／⇧⌘Z」節で宣言済み）。 */
+function restoreFromParams(p) {
+  if (p.guideSvg) loadGuide(p.guideSvg);
+  if (p.objSvg) { loadObject(p.objSvg); objPasteEl.value = p.objSvg; } else { clearObjectOverride(); objPasteEl.value = ''; }
+  if (p.guideSvg) guidePasteEl.value = p.guideSvg;
+  // 段6: 色（塗り・線・背景）は上部バーのcolorStateへ。旧SVG（bg無し）は既定値（白）で復元。
+  colorState.fillColor = p.fillColor !== undefined ? p.fillColor : colorState.fillColor;
+  colorState.strokeColor = p.strokeColor !== undefined ? p.strokeColor : colorState.strokeColor;
+  colorState.bg = p.bg !== undefined ? p.bg : '#FFFFFF';
+  sb.colors.set('fillColor', colorState.fillColor); sb.colors.set('strokeColor', colorState.strokeColor); sb.colors.set('bg', colorState.bg);
+  var keys = ['objKind', 'circleDiameter', 'segmentLength', 'objSize',
+    'useObjectColor', 'strokeWidth', 'colorKind', 'color2', 'useElementsInOrder',
+    'useDepth', 'placeMode', 'count', 'distance', 'curvatureK',
+    'depthKind', 'depthCycles', 'depthAmp', 'orientMode', 'mirrorAlternate',
+    'sizeMode', 'sizeGain',
+    'startShift', 'rangeStart', 'rangeEnd', 'offset', 'offsetWaveAmp', 'offsetWaveCycles',
+    'spinTurns', 'playSpin', 'playRotX', 'playRotY', 'playPeriod', 'playReverse', 'playWave', 'columns', 'columnGap', 'jitterSeed', 'jitterPos', 'jitterSize', 'jitterAngle',
+    'showGuide', 'showAnchors',
+    'solidMode', 'twistTurns', 'perspective', 'haze', 'brightness', 'thinFar'];
+  keys.forEach(function (k) { if (p[k] !== undefined) values.set(k, p[k]); });
+  ANGLE_KEYS.forEach(function (k) { if (p[k] !== undefined && angleRows[k]) { angleRows[k].setValue(p[k]); values[k] = angleRows[k].getValue(); } });
+  setPasteCollapsed(guideFieldsEl, guideSummaryRowEl, true);
+  setPasteCollapsed(objFieldsEl, objSummaryRowEl, true);
+  syncVisibility();
+}
+Studio.onDropSVG(canvas, function (env, file, result) {
+  if (!env) {
+    /* 段6-A-1: 封筒の無いSVG（＝出自メタデータが無いだけの、正当なSVG）はガイドにする。
+       too-large/invalid/unavailable/io-errorは今までどおりエラー表示（読めなかった/壊れている）。 */
+    if (result && result.status === 'missing') {
+      var rGuide = new FileReader();
+      rGuide.onload = function () {
+        if (loadGuide(rGuide.result)) {
+          guidePasteEl.value = rGuide.result;
+          render(); pushHistory(true);
+          setPasteCollapsed(guideFieldsEl, guideSummaryRowEl, true);
+          Studio.toast('ガイドにしました');
+        }
+      };
+      rGuide.onerror = function () { Studio.toast('ファイルを読み込めませんでした', { kind: 'error', sticky: true }); };
+      rGuide.readAsText(file);
+      return;
+    }
+    Studio.toast((result && result.message) || 'SVGを読めませんでした', { kind: 'error', sticky: true }); return;
+  }
+  if (env.tool !== TOOL) { Studio.toast('別ツールのSVGです（' + env.tool + '）', { kind: 'error', sticky: true }); return; }
+  var params = env.params || {};
+  var v = env.paramsVersion != null ? env.paramsVersion : PARAMS_VERSION;
+  if (v < 2) params = Sweep.migrateParamsV1toV2(params);
+  if (v < 3) params = Sweep.migrateParamsV2toV3(params);
+  if (v < 4) params = Sweep.migrateParamsV3toV4(params);
+  if (v < 5) params = Sweep.migrateParamsV4toV5(params);
+  if (v < 6) params = Sweep.migrateParamsV5toV6(params);
+  restoringHistory = true;
+  restoreFromParams(params);
+  restoringHistory = false;
+  if (env.memo) bar.setMemo(env.memo);
+  render();
+  pushHistory(true);
+  Studio.toast('設定を復元しました');
+});
+
+/* --- 初期状態: 立体は既定OFF（一定・個数60個・大きさ一定）。説明を読まなくても
+   ガイドに沿って円が並ぶのが見える。立体は「立体にする」をONにすると使える --- */
+loadGuide(GUIDE_DEFAULT_SVG);
+render();
+pushHistory(true); // 最初の状態も1つ積む（⌘Zで最初へ戻れる）
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

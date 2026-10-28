@@ -1,0 +1,500 @@
+<!doctype html>
+<html data-sm-build="f66ae4d・2026-10-28 09:33" data-sm-app="circle-contact" lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="studio-spec" content="type:一枚もの;features:svg,numeric,color,seed">
+<title>正円接触パターン</title>
+<link rel="stylesheet" href="_ext/000_kit/studio2.css?v=0.7.8">
+<style>
+/* 独自CSSは最小限（006_ツールの規格 §6）。版面をステージの高さいっぱいに収める（136 と同じ）と、⌘Y アウトライン表示だけ。 */
+#bar [hidden]{ display:none!important; }
+#board{ width:100%; height:100%; border:0; overflow:visible; }
+#drawing{ display:block; width:100%; height:100%; }
+#drawing.outline circle{ fill:none!important; stroke:#000!important; stroke-width:1px!important; vector-effect:non-scaling-stroke; }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body>
+
+<header id="bar"></header>
+
+<div id="main">
+  <div id="stage">
+    <div id="board">
+      <svg id="drawing" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="正円接触パターン"></svg>
+    </div>
+  </div>
+  <aside id="panel" class="studio-panel"></aside>
+</div>
+
+<script src="_ext/000_kit/studio-kit.js?v=0.7.10"></script>
+<script>
+(function () {
+  /* ==========================================================================
+     正円接触パターン — 複数の正円を、円周上で他の円と1点だけ接するように配置する。
+     006_ツールの規格 §0「標準の画面」に準拠（上部バー＝Studio.stageBar・キー＝Studio.keys）。
+     ========================================================================== */
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var drawing = document.getElementById('drawing');
+  var EPS = 0.5;
+
+  /* --- 出自（§1） -------------------------------------------------------- */
+  var TOOL = 'tangent-circles';
+  var PJ = '102_正円接触パターン';
+  var LAW = '複数の正円を、必ず円周上で他の円と1点だけ接するように配置する';
+  var TOOL_VERSION = '0.2.0', PARAMS_VERSION = 1;
+  var toast = Studio.toast;
+
+  /* --- 色（§0・§5 COLOR-00: 上部バーの色見本。初期色は規定パレットの紺） ------------- */
+  var DEFAULT_COLORS = (Studio.PALETTES && Studio.PALETTES[0] && Studio.PALETTES[0].colors) || ['#0044CC', '#FFFFFF', '#14120F'];
+  var colorState = { fill: DEFAULT_COLORS[0] || '#0044CC', stroke: DEFAULT_COLORS[0] || '#0044CC', bg: '#FFFFFF' };
+
+  /* 複数色の配色（持ち主が採用済みの6種。README「配色もいい」）。「単色」は上部バーの塗り・線を使う */
+  var palettes = {
+    Sunset:   ['#F4C0D1', '#F0997B', '#EF9F27', '#D85A30', '#993556', '#534AB7'],
+    Ocean:    ['#B5D4F4', '#85B7EB', '#378ADD', '#185FA5', '#5DCAA5', '#0F6E56'],
+    Mono:     ['#2C2C2A', '#444441', '#5F5E5A', '#888780', '#B4B2A9', '#D3D1C7'],
+    Forest:   ['#C0DD97', '#97C459', '#639922', '#3B6D11', '#1D9E75', '#85B7EB'],
+    Berry:    ['#CECBF6', '#AFA9EC', '#7F77DD', '#534AB7', '#D4537E', '#F0997B'],
+    Harajuku: ['#F7C1C1', '#FAC775', '#97C459', '#378ADD', '#7F77DD', '#D4537E']
+  };
+  var MODES = ['chain', 'orbit', 'apollonian', 'cluster'];
+  var STYLES = ['fill', 'line', 'alt'];
+
+  /* --- 版面（§0・§13 VID-01）。世界の短辺 = 600、座標は左上が原点 ------------------ */
+  var WORLD_SIDE = 600;
+  var W = 600, H = 600, CX = 300, CY = 300;
+  var frameBox = { x: 0, y: 0, w: W, h: H, pxW: 1080, pxH: 1080, key: '1:1' };
+  function setFrame(pxW, pxH, key) {
+    var a = pxW / pxH;
+    W = WORLD_SIDE; H = WORLD_SIDE;
+    if (a < 1) H = WORLD_SIDE / a; else if (a > 1) W = WORLD_SIDE * a;
+    CX = W / 2; CY = H / 2;
+    frameBox = { x: 0, y: 0, w: W, h: H, pxW: pxW, pxH: pxH, key: key };
+    var m = Math.max(W, H) * 0.06;
+    drawing.setAttribute('viewBox', [-m, -m, W + 2 * m, H + 2 * m].join(' '));
+  }
+  function svgEl(tag, attrs) {
+    var e = document.createElementNS(SVGNS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+  function drawFrameGuide() {
+    var f = frameBox, g = svgEl('g', { 'class': 'frame-guide', 'pointer-events': 'none' }); // body.insta-off で自動非表示
+    g.appendChild(svgEl('rect', { x: f.x, y: f.y, width: f.w, height: f.h, fill: 'none', stroke: '#8A8A8A',
+      'stroke-width': 1, 'stroke-dasharray': '4 3', 'vector-effect': 'non-scaling-stroke' }));
+    var y = f.y - Math.max(f.w, f.h) * 0.03, tick = Math.max(f.w, f.h) * 0.012;
+    function line(x1, y1, x2, y2) {
+      g.appendChild(svgEl('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: '#8A8A8A', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke' }));
+    }
+    line(f.x, y, f.x + f.w, y); line(f.x, y - tick, f.x, y + tick); line(f.x + f.w, y - tick, f.x + f.w, y + tick);
+    var t = svgEl('text', { x: f.x + f.w / 2, y: y - tick * 1.3, 'text-anchor': 'middle', 'font-size': Math.max(f.w, f.h) * 0.022,
+      fill: '#6F6F6F', 'font-family': 'ui-monospace, Menlo, monospace', 'font-weight': 600 });
+    t.textContent = f.key + ' · ' + f.pxW + ' × ' + f.pxH + ' px';
+    g.appendChild(t);
+    drawing.appendChild(g);
+  }
+
+  /* --- 種つき乱数（§5 種）。生成のたびに同じ種から作り直す ---------------------------- */
+  var seed = Math.floor(Math.random() * 1e9);
+  var rng = Studio.rng(seed);
+  var rand = function (a, b) { return a + (b - a) * rng(); };
+
+  /* 2円の関係。T=1点で接する A=離れている C=包含 O=2点で交わる（C・Oは不可） */
+  function rel(a, b) {
+    var d = Math.hypot(a.x - b.x, a.y - b.y);
+    var sumR = a.r + b.r, diffR = Math.abs(a.r - b.r);
+    if (Math.abs(d - sumR) <= EPS) return 'T';
+    if (diffR > 0.5 && Math.abs(d - diffR) <= EPS) return 'T';
+    if (d > sumR + EPS) return 'A';
+    if (d < diffR - EPS) return 'C';
+    return 'O';
+  }
+  function validate(nc, list) {
+    var touches = 0;
+    for (var i = 0; i < list.length; i++) {
+      var r = rel(nc, list[i]);
+      if (r === 'O' || r === 'C') return { ok: false, touches: 0 };
+      if (r === 'T') touches++;
+    }
+    return { ok: true, touches: touches };
+  }
+
+  /* Chain — 直前の円に外接する円をつなぐ */
+  function genChain(n, v) {
+    var arr = [{ x: CX, y: CY, r: rand(20, 40) }];
+    var last = arr[0], a = 0;
+    while (arr.length < n && a < n * 250) {
+      a++;
+      var r = rand(6 + (1 - v) * 14, 18 + v * 55);
+      var ang = rand(0, Math.PI * 2), d = last.r + r;
+      var x = last.x + Math.cos(ang) * d, y = last.y + Math.sin(ang) * d;
+      if (x - r < 8 || x + r > W - 8 || y - r < 8 || y + r > H - 8) {
+        if (a % 25 === 0) last = arr[Math.floor(rng() * arr.length)];
+        continue;
+      }
+      var nc = { x: x, y: y, r: r }, c = validate(nc, arr);
+      if (c.ok && c.touches >= 1) { arr.push(nc); last = nc; }
+      else if (a % 30 === 0) { last = arr[Math.floor(rng() * arr.length)]; }
+    }
+    return arr;
+  }
+
+  /* Orbit — 中央の円に衛星の円が接する */
+  function genOrbit(n, v) {
+    var arr = [{ x: CX, y: CY, r: 60 + v * 40 }];
+    var anchors = [arr[0]], a = 0;
+    while (arr.length < n && a < n * 350) {
+      a++;
+      var p = anchors[Math.floor(rng() * anchors.length)];
+      var r = rand(6 + (1 - v) * 12, 14 + v * 40), d = p.r + r, ang = rand(0, Math.PI * 2);
+      var x = p.x + Math.cos(ang) * d, y = p.y + Math.sin(ang) * d;
+      if (x - r < 6 || x + r > W - 6 || y - r < 6 || y + r > H - 6) continue;
+      var nc = { x: x, y: y, r: r }, c = validate(nc, arr);
+      if (c.ok && c.touches >= 1) {
+        arr.push(nc);
+        if (arr.length % 5 === 0) anchors.push(nc);
+      }
+    }
+    return arr;
+  }
+
+  /* Apollonian — 外円の内側を、接する小さな円で埋める */
+  function genApo(n, v) {
+    var R = Math.min(W, H) / 2 - 30;
+    var outer = { x: CX, y: CY, r: R, _outer: true };
+    var arr = [outer];
+    // 外円の内側に、互いに接する同じ大きさの3円（外円にも内接）を置く
+    var off = [0, 2 * Math.PI / 3, 4 * Math.PI / 3];
+    var rIn = R / (1 + 2 / Math.sqrt(3)), dfc = R - rIn;
+    var inner = off.map(function (ang) { return { x: CX + Math.cos(ang) * dfc, y: CY + Math.sin(ang) * dfc, r: rIn }; });
+    arr.push.apply(arr, inner);
+
+    var a = 0;
+    while (arr.length - 1 < n && a < n * 500) {
+      a++;
+      var ang = rand(0, Math.PI * 2), rr = Math.sqrt(rng()) * (R - 5);
+      var px = CX + Math.cos(ang) * rr, py = CY + Math.sin(ang) * rr;
+      var best = Infinity, tgt = null;   // 点から最も近い円までの余白（置ける最大の半径）
+      for (var i = 0; i < arr.length; i++) {
+        var c = arr[i], cand;
+        if (c._outer) cand = R - Math.hypot(px - CX, py - CY);
+        else cand = Math.hypot(px - c.x, py - c.y) - c.r;
+        if (cand < best) { best = cand; tgt = c; }
+      }
+      if (!tgt || best < 3) continue;
+      var r = Math.max(3 + (1 - v) * 3, Math.min(6 + v * 40, best));
+      var cx, cy;
+      if (tgt._outer) {
+        var dC = Math.hypot(px - CX, py - CY) || 1;
+        cx = CX + (px - CX) / dC * (R - r); cy = CY + (py - CY) / dC * (R - r);
+      } else {
+        var dT = Math.hypot(px - tgt.x, py - tgt.y) || 1;
+        cx = tgt.x + (px - tgt.x) / dT * (tgt.r + r); cy = tgt.y + (py - tgt.y) / dT * (tgt.r + r);
+      }
+      var nc = { x: cx, y: cy, r: r }, good = true, tan = 0;
+      for (var j = 0; j < arr.length; j++) {
+        var q = arr[j];
+        if (q._outer) {
+          var d = Math.hypot(nc.x - CX, nc.y - CY);
+          if (d + nc.r > R + EPS) { good = false; break; }
+          if (Math.abs((d + nc.r) - R) <= EPS) tan++;
+        } else {
+          var r2 = rel(nc, q);
+          if (r2 === 'O' || r2 === 'C') { good = false; break; }
+          if (r2 === 'T') tan++;
+        }
+      }
+      if (good && tan >= 1) arr.push(nc);
+    }
+    return arr;
+  }
+
+  /* Cluster — 円をぎっしり寄せ集める */
+  function genCluster(n, v) {
+    var arr = [{ x: CX + rand(-40, 40), y: CY + rand(-40, 40), r: 30 + v * 30 }];
+    var a = 0;
+    while (arr.length < n && a < n * 500) {
+      a++;
+      var p = arr[Math.floor(rng() * arr.length)];
+      var r = rand(5 + (1 - v) * 12, 12 + v * 55), d = p.r + r, ang = rand(0, Math.PI * 2);
+      var x = p.x + Math.cos(ang) * d, y = p.y + Math.sin(ang) * d;
+      if (x - r < 8 || x + r > W - 8 || y - r < 8 || y + r > H - 8) continue;
+      var nc = { x: x, y: y, r: r }, c = validate(nc, arr);
+      if (c.ok && c.touches >= 1) arr.push(nc);
+    }
+    return arr;
+  }
+
+  /* 最初の形（INIT-01）: 同じ大きさの円6個が中央の円に接し、隣どうしも接する。版面の短辺の60% */
+  function genInitial() {
+    var r = Math.min(W, H) * 0.1, arr = [{ x: CX, y: CY, r: r }];
+    for (var k = 0; k < 6; k++) {
+      var ang = k * Math.PI / 3;
+      arr.push({ x: CX + Math.cos(ang) * 2 * r, y: CY + Math.sin(ang) * 2 * r, r: r });
+    }
+    return arr;
+  }
+
+  /* --- 状態 ------------------------------------------------------------- */
+  var initShape = true;   // true の間は最初の形。円の数・種などを動かすと生成に切り替わる
+  var circleCache = { key: '', list: [] };
+  function currentCircles() {
+    var key = [initShape, values.mode, values.n, values.v, seed, W, H].join('|');
+    if (circleCache.key === key) return circleCache.list;
+    var list;
+    if (initShape) list = genInitial();
+    else {
+      rng = Studio.rng(seed);
+      var n = values.n, v = values.v;
+      list = values.mode === 'chain' ? genChain(n, v) : values.mode === 'orbit' ? genOrbit(n, v)
+        : values.mode === 'apollonian' ? genApo(n, v) : genCluster(n, v);
+    }
+    circleCache = { key: key, list: list };
+    return list;
+  }
+
+  /* --- 描画（各円は個別の <circle> のまま＝Illustrator で個別オブジェクトとして開ける） ---- */
+  function buildArt() {
+    var g = svgEl('g', { id: 'art' });
+    var pal = values.pal !== 'single' ? palettes[values.pal] : null;
+    var sorted = currentCircles().slice().sort(function (a, b) { return b.r - a.r; });   // 大きい円を後ろへ
+    sorted.forEach(function (c, i) {
+      var el = svgEl('circle', { cx: c.x.toFixed(2), cy: c.y.toFixed(2), r: c.r.toFixed(2) });
+      var outline = values.style === 'line' || (values.style === 'alt' && i % 2 === 0);
+      if (c._outer) {
+        el.setAttribute('fill', 'none'); el.setAttribute('stroke', colorState.stroke); el.setAttribute('stroke-width', 1.5);
+      } else if (outline) {
+        el.setAttribute('fill', 'none'); el.setAttribute('stroke', pal ? pal[i % pal.length] : colorState.stroke);
+        el.setAttribute('stroke-width', 1.5);
+      } else {
+        el.setAttribute('fill', pal ? pal[i % pal.length] : colorState.fill);
+      }
+      g.appendChild(el);
+    });
+    return g;
+  }
+  function render() {
+    drawing.innerHTML = '';
+    if (colorState.bg && colorState.bg !== 'none') {
+      drawing.appendChild(svgEl('rect', { x: 0, y: 0, width: W, height: H, fill: colorState.bg, 'pointer-events': 'none' }));
+    }
+    drawFrameGuide();
+    drawing.appendChild(buildArt());
+  }
+
+  /* --- 取り消し（§7 ⌘Z/⇧⌘Z）。パネル値＋種＋色＋最初の形かどうか ---------------------- */
+  var hist = Studio.history(100);
+  function snapshot() {
+    return { v: { mode: values.mode, n: values.n, v: values.v, pal: values.pal, style: values.style },
+      seed: seed, init: initShape, memo: memoText(),
+      color: { fill: colorState.fill, stroke: colorState.stroke, bg: colorState.bg } };
+  }
+  function pushHist() { clearTimeout(pushHist._t); pushHist._t = setTimeout(function () { hist.push(snapshot()); }, 300); }
+  function pushHistNow() { clearTimeout(pushHist._t); hist.push(snapshot()); }
+  function applyState(s) {
+    if (!s) return;
+    for (var k in s.v) values.set(k, s.v[k]);
+    seed = s.seed; values.set('seed', seed); initShape = !!s.init;
+    if (s.color) {
+      colorState.fill = s.color.fill; colorState.stroke = s.color.stroke; colorState.bg = s.color.bg;
+      ['fill', 'stroke', 'bg'].forEach(function (k) { sb.colors.set(k, colorState[k]); });
+    }
+    if (s.memo !== undefined && bar) bar.setMemo(s.memo);
+    render();
+  }
+
+  var values = Studio.panel('#panel', [
+    { type: 'group', label: '生成' },
+    { type: 'toggle', key: 'mode', value: 'orbit', options: [
+      { value: 'chain', label: 'Chain' }, { value: 'orbit', label: 'Orbit' },
+      { value: 'apollonian', label: 'Apollonian' }, { value: 'cluster', label: 'Cluster' }] },
+    { type: 'range', integer: true, key: 'n', label: '円の数', unit: '個', min: 3, max: 120, step: 1, value: 7 },
+    { type: 'range', key: 'v', label: '大きさのばらつき', unit: '', min: 0, max: 1, step: 0.05, decimals: 2, value: 0.6 },
+    { type: 'number', key: 'seed', label: '種', unit: '', min: 0, max: 4294967295, step: 1, integer: true, value: seed, stops: [], wide: true },
+    { type: 'button', label: '種を変えて作り直す（N）', onClick: function () { reseed(); } },
+    { type: 'group', label: '見た目' },
+    { type: 'toggle', key: 'style', label: '描き方', value: 'fill', options: [
+      { value: 'fill', label: '塗り' }, { value: 'line', label: '線' }, { value: 'alt', label: '交互' }] },
+    { type: 'select', key: 'pal', label: '配色', value: 'single', options: [{ value: 'single', label: '単色（塗り・線）' }]
+      .concat(Object.keys(palettes).map(function (k) { return { value: k, label: k }; })) },
+    { type: 'button', label: '最初の形に戻す', onClick: function () {
+      initShape = true; values.set('mode', 'orbit'); values.set('n', 7); pushHistNow(); render(); toast('最初の形に戻しました'); } }
+  ], function (v, key) {
+    if (key === null) return;
+    if (key === 'seed') seed = v.seed;
+    if (key !== 'pal' && key !== 'style') initShape = false;   // 円の配置が変わる操作で最初の形から生成へ
+    render(); pushHist();
+  });
+  function reseed() {
+    seed = Math.floor(Math.random() * 1e9); initShape = false;
+    values.set('seed', seed); render(); pushHistNow();
+  }
+
+  hist.push(snapshot());
+
+  /* --- 書き出し（§1〜§4・§8） ---------------------------------------------- */
+  function memoText() { return bar ? bar.memoText() : ''; }
+  function fileBase() { return Studio.fname(TOOL, values.mode + '-n' + values.n + '-s' + seed); }
+  function exportMeta() {
+    var m = {
+      tool: TOOL, pj: PJ, law: LAW, seed: seed, memo: memoText(),
+      toolVersion: TOOL_VERSION, paramsVersion: PARAMS_VERSION,
+      params: { mode: values.mode, n: values.n, v: values.v, pal: values.pal, style: values.style, init: initShape,
+                fill: colorState.fill, stroke: colorState.stroke, bg: colorState.bg, seed: seed }
+    };
+    if (bar && bar.captionOn()) {
+      m.caption = ['生成 ' + values.mode + ' · 円の数 ' + values.n + '個 · 大きさのばらつき ' + values.v.toFixed(2)
+        + ' · 配色 ' + (values.pal === 'single' ? '単色' : values.pal) + ' · 種 ' + seed];
+    }
+    return m;
+  }
+  function buildExportSVG(includeBg) {
+    var svg = svgEl('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
+    var art = svgEl('g', { id: 'art' });
+    if (includeBg && colorState.bg && colorState.bg !== 'none') {
+      art.appendChild(svgEl('rect', { x: 0, y: 0, width: W, height: H, fill: colorState.bg }));
+    }
+    art.appendChild(buildArt());
+    svg.appendChild(art);
+    return svg;
+  }
+  function doSvg() {
+    var name = fileBase();
+    Studio.exportSVG(buildExportSVG(true), { name: name, standard: true, meta: exportMeta() });
+    toast(name + '.svg');
+  }
+  function doCopy() {
+    var text = Studio.serializeSVG(buildExportSVG(false), { standard: true, meta: exportMeta() });   // §8 COPY-01: 地色を含めない
+    Studio.copySVG(text).then(function (result) { toast(Studio.copyResultMessage(result)); })
+      .catch(function () { toast('コピーできませんでした。「SVG」でファイルとして渡してください', { kind: 'error', sticky: true }); });
+  }
+  var ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.50095 3.64935C9.66036 3.48994 9.87656 3.40039 10.102 3.40039H18.7484C19.2179 3.40039 19.5984 3.78095 19.5984 4.25039V19.7504C19.5984 20.2198 19.2179 20.6004 18.7484 20.6004H5.24844C4.77899 20.6004 4.39844 20.2198 4.39844 19.7504V9.10394C4.39844 8.87851 4.48799 8.66231 4.6474 8.5029L9.50095 3.64935ZM10.247 4.60039L5.59844 9.24892V19.4004H18.3984V4.60039H10.247ZM5.4962 9.35116L5.49592 9.35143L5.24844 9.10394L5.49592 9.35143C5.49602 9.35134 5.49611 9.35125 5.4962 9.35116ZM10.3492 4.49816C10.3493 4.49807 10.3494 4.49797 10.3495 4.49788L10.102 4.25039L10.3495 4.49788L10.3492 4.49816ZM11.3983 13.5522L9.60457 11.7584L8.75604 12.607L11.3967 15.2477C11.7287 15.5796 12.2669 15.5796 12.5988 15.2477L15.2391 12.6074L14.3906 11.7588L12.5983 13.5511L12.5979 9.00009L11.3979 9.00019L11.3983 13.5522Z" fill="currentColor"/></svg>';
+  var bar = Studio.appBar('#bar', {
+    name: '正円接触パターン',
+    theme: false,
+    onCopy: doCopy, onSvg: doSvg,
+    copyLabel: 'コピー',
+    svgLabel: 'SVG', svgTitle: 'SVGを書き出し', svgAriaLabel: 'SVGを書き出し', svgIcon: ICON_DOWNLOAD
+  });
+
+  /* 動かない図なので motion:false（再生・A/B・秒数なし。「映像」の代わりに「PNG」）。 */
+  var sb = Studio.stageBar('#bar', {
+    motion: false,
+    onSize: function (w, h, key) { setFrame(w, h, key); render(); },
+    colors: [
+      { key: 'fill', label: '塗り', value: colorState.fill },
+      { key: 'stroke', label: '線', value: colorState.stroke },
+      { key: 'bg', label: '背景', value: colorState.bg }
+    ],
+    palettes: true,
+    onColorChange: function (key, c) { colorState[key] = c; render(); pushHist(); },
+    getParams: motionParams,
+    integerKeys: ['n'],
+    apply: applyMotionParams,
+    frame: frameForExport,
+    meta: exportMeta
+  });
+  render();
+
+  function motionParams() {
+    return { mode: values.mode, n: values.n, v: values.v, pal: values.pal, style: values.style, seed: seed,
+      fill: colorState.fill, stroke: colorState.stroke, bg: colorState.bg };
+  }
+  function applyParamsToState(p) {
+    ['mode', 'n', 'v', 'pal', 'style'].forEach(function (k) { if (p[k] !== undefined) values.set(k, p[k]); });
+    if (p.seed !== undefined) { seed = p.seed; values.set('seed', seed); }
+    ['fill', 'stroke', 'bg'].forEach(function (k) { if (p[k] !== undefined) colorState[k] = p[k]; });
+  }
+  function applyMotionParams(p) { applyParamsToState(p); render(); }
+  function frameForExport(ctx) {
+    if (!ctx.params) return Studio.serializeSVG(buildExportSVG(true), { standard: true });
+    var before = snapshot(), wasInit = initShape;
+    applyParamsToState(ctx.params); initShape = false;
+    var text = Studio.serializeSVG(buildExportSVG(true), { standard: true });
+    applyState(before); initShape = wasInit;
+    return text;
+  }
+
+  /* --- 書き出したSVGを戻すと、その設定で開き直す（§1） ---------------------------- */
+  var HEX = /^(none|#[0-9a-f]{6})$/i;
+  var restoreContract = {
+    tool: TOOL, toolVersion: TOOL_VERSION, paramsVersion: PARAMS_VERSION,
+    legacy: { toolVersion: '0.2.0', paramsVersion: 1 },
+    validate: function (p) {
+      if (MODES.indexOf(p.mode) < 0) return '生成の値が不正です';
+      if (!Number.isInteger(p.n) || p.n < 3 || p.n > 120) return '円の数が範囲外です';
+      if (typeof p.v !== 'number' || !(p.v >= 0 && p.v <= 1)) return '大きさのばらつきが範囲外です';
+      if (p.pal !== 'single' && !palettes[p.pal]) return '配色の値が不正です';
+      if (STYLES.indexOf(p.style) < 0) return '描き方の値が不正です';
+      if (!Number.isInteger(p.seed) || p.seed < 0 || p.seed > 4294967295) return '種が範囲外です';
+      if (typeof p.init !== 'boolean') return '最初の形の値が不正です';
+      for (var c of ['fill', 'stroke', 'bg']) if (typeof p[c] !== 'string' || !HEX.test(p[c])) return c + 'の色が不正です';
+      return true;
+    }
+  };
+  function restoreSettings(env) {
+    var next = Studio.prepareRestore(env, restoreContract);
+    var before = snapshot();
+    clearTimeout(pushHist._t); hist.push(before);
+    try {
+      var p = next.params;
+      applyParamsToState(p); initShape = p.init;
+      ['fill', 'stroke', 'bg'].forEach(function (k) { sb.colors.set(k, colorState[k]); });
+      bar.setMemo(next.memo || ''); render();
+    } catch (error) { applyState(before); throw error; }
+    hist.push(snapshot());
+  }
+  Studio.onDropSVG(document.body, function (env, file, result) {
+    if (env && env.tool === TOOL) {
+      try { restoreSettings(env); toast('設定を戻しました（' + (env.date || '日時不明') + '）'); }
+      catch (error) { toast(error.message, { kind: 'error', sticky: true }); }
+      return;
+    }
+    if (result && result.status && result.status !== 'missing' && result.status !== 'ok' && result.status !== 'unsupported' && result.status !== 'invalid') {
+      toast(result.message, { kind: 'error', sticky: true }); return;
+    }
+    toast('このツールが書き出したSVGだけ設定を戻せます', { kind: 'error', sticky: true });
+  });
+
+  /* --- ショートカット（§7・KEY-00: Studio.keys に集約）。動きも貼り付ける入力も無いので Space・⌘V は持たない -- */
+  Studio.keys({
+    history: hist, apply: applyState,
+    copy: doCopy,
+    outline: function () { drawing.classList.toggle('outline'); },
+    reseed: reseed,
+    toggleColorTarget: function () {
+      sb.colors.setTarget(sb.colors.getTarget() === 'fill' ? 'stroke' : 'fill');
+    },
+    swapFillStroke: function () {
+      var f = colorState.fill; colorState.fill = colorState.stroke; colorState.stroke = f;
+      sb.colors.set('fill', colorState.fill); sb.colors.set('stroke', colorState.stroke);
+      render(); pushHistNow();
+    },
+    escSteps: [sb.closeDialog]
+  });
+})();
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+/* studio.css — Studio 共通トークン & コントロールUI（studio-kit.js とセット・依存ゼロ）
+   トークン名は正準1名に統一し、既存PJの旧名はエイリアスで吸収（移植コスト0）。 */
+
+:root {
+  /* --- 正準トークン（light 既定・011 の紙系がベース） --- */
+  --bg: #FAF8F2;
+  --panel: #F1EFE8;
+  --panel2: #FBFAF6;
+  --ink: #2C2C2A;
+  --muted: #5F5E5A;
+  --line: rgba(0, 0, 0, 0.12);
+  --accent: #534AB7;
+
+  /* --- レイアウト変数 --- */
+  --panel-w: 320px;
+  --gap: 24px;
+  --radius: 8px;
+  --maxw: 1100px;
+
+  /* --- 旧名エイリアス（既存ツールを載せ替える時、名前を変えずに済む） --- */
+  --panel-line: var(--line);
+  --moact: var(--accent);   /* 036 */
+  --acc: var(--accent);     /* 038 */
+  --sub: var(--muted);      /* 036 */
+  --dim: var(--muted);      /* 038 */
+  --txt: var(--ink);        /* 038 */
+}
+
+/* 同じ役割スロットを暗色で埋め替える1テーマ設計（038 dark と構造一致） */
+[data-theme="dark"] {
+  --bg: #0b1126;
+  --panel: #101a38;
+  --panel2: #0d1530;
+  --ink: #e8edfa;
+  --muted: #8b97c2;
+  --line: #22305c;
+  --accent: #3fc1d4;
+}
+
+/* ============ 2カラム・アプリレイアウト（011 の唯一のレスポンシブを既定に昇格） ============ */
+.studio-app {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+  display: grid;
+  grid-template-columns: var(--panel-w) 1fr;
+  gap: var(--gap);
+  min-height: 100vh;
+  box-sizing: border-box;
+  color: var(--ink);
+  background: var(--bg);
+  /* §2: Noto Sans JP を先頭に。Helvetica Neue は 1ファミリー原則に反するので外した（2026-08-11） */
+  font-family: "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+}
+.studio-app[data-panel-side="right"] { grid-template-columns: 1fr var(--panel-w); }
+.studio-app[data-panel-side="right"] .studio-panel { order: 2; }
+@media (max-width: 880px) {
+  .studio-app, .studio-app[data-panel-side="right"] { grid-template-columns: 1fr; }
+  .studio-app[data-panel-side="right"] .studio-panel { order: 0; }
+}
+
+.studio-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  min-height: 320px;
+}
+.studio-stage svg, .studio-stage canvas { max-width: 100%; height: auto; }
+
+/* ============ パネル外装（035 の .grp/.ttl 区切りが正準） ============ */
+.studio-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-content: start;
+}
+.studio-panel h1 { font-size: 15px; margin: 0 0 4px; letter-spacing: .04em; }
+.studio-panel .sub { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+
+.sk-grp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.sk-grp-ttl {
+  font-size: 11px;
+  letter-spacing: .12em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* ============ 行の共通 ============ */
+.sk-row { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.sk-rowhead { display: flex; justify-content: space-between; align-items: baseline; color: var(--muted); }
+.sk-val { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* range スライダー（006_ツールの規格 §5: 数値は直接入力できる） */
+.sk-range.sk-inline { flex-direction: row; align-items: center; gap: 10px; }
+.sk-range.sk-inline .sk-rowhead { flex: 0 0 auto; }
+.sk-label { cursor: ew-resize; user-select: none; }
+.sk-numwrap { display: flex; align-items: center; gap: 3px; }
+.sk-num {
+  width: 54px; height: 24px; text-align: right; padding: 0 5px;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel2); color: var(--ink);
+  font: inherit; font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.sk-num:focus { border-color: var(--accent); outline: none; }
+.sk-unit { font-size: 11px; color: var(--muted); min-width: 12px; }
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; border-radius: 3px;
+  background: var(--line); outline: none; cursor: pointer; margin: 4px 0;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 15px; height: 15px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--panel2); cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 15px; height: 15px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--panel2); cursor: pointer;
+}
+
+/* color 行 */
+.sk-colorrow { flex-direction: row; align-items: center; gap: 8px; }
+.sk-colorrow > span { flex: 0 0 auto; min-width: 44px; color: var(--muted); }
+.sk-colorrow input[type="color"] {
+  flex: 1; height: 30px; padding: 0;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); cursor: pointer;
+}
+
+
+/* color 行の「なし」（006_ツールの規格 §5） */
+.sk-none {
+  flex: 0 0 auto; height: 30px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: var(--panel2); color: var(--muted);
+  font: inherit; font-size: 11px; cursor: pointer;
+}
+.sk-none:hover { border-color: var(--accent); }
+.sk-none[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* colorset 行（対象チップ方式・006_ツールの規格 §5。正典 = 135 v2） */
+.sk-colorset { gap: 8px; }
+.sk-targets { display: flex; gap: 6px; }
+.sk-targets button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px 4px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--panel2); color: var(--muted);
+  font: inherit; font-size: 11px; cursor: pointer;
+  transition: border-color .12s, color .12s;
+}
+.sk-targets button:hover { border-color: var(--accent); }
+.sk-targets button[aria-pressed="true"] {
+  border-color: var(--accent); color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.sk-chipcol {
+  display: block; width: 100%; height: 14px;
+  border: 1px solid var(--line); border-radius: 3px;
+  /* 透明（なし）は市松で見せる */
+  background: repeating-conic-gradient(rgba(0,0,0,0) 0% 25%, rgba(0,0,0,.12) 0% 50%) 0 0 / 8px 8px;
+}
+.sk-chipsw { display: block; width: 100%; height: 100%; border-radius: 2px; }
+.sk-editrow { display: flex; align-items: center; gap: 8px; }
+.sk-editrow input[type="color"] {
+  flex: 1; height: 30px; padding: 0;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); cursor: pointer;
+}
+.sk-hex { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); min-width: 52px; }
+.sk-palrow select {
+  width: 100%; font: inherit; font-size: 12px; padding: 7px 8px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); color: var(--ink); cursor: pointer;
+}
+.sk-swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.sk-swatches button {
+  width: 20px; height: 20px; padding: 0;
+  border: 1px solid var(--line); border-radius: 3px; cursor: pointer;
+}
+.sk-swatches button:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sk-hint { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.6; }
+
+/* select 行 */
+.sk-selectrow { flex-direction: row; align-items: center; gap: 8px; }
+.sk-selectrow > span { flex: 0 0 auto; min-width: 44px; color: var(--muted); }
+.sk-selectrow select {
+  flex: 1; font: inherit; font-size: 12px; padding: 7px 8px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); color: var(--ink); cursor: pointer;
+}
+
+/* checkbox 行 */
+.sk-checkrow { flex-direction: row; align-items: center; gap: 8px; cursor: pointer; }
+.sk-checkrow input { width: 15px; height: 15px; accent-color: var(--accent); }
+.sk-checkrow span { color: var(--ink); }
+
+/* toggle（セグメントボタン群） */
+.sk-togglelabel { color: var(--muted); }
+.sk-seg { display: flex; gap: 6px; }
+.sk-seg button {
+  flex: 1; font: inherit; font-size: 12px; padding: 8px 6px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); color: var(--ink);
+  cursor: pointer; transition: background .12s, border-color .12s, color .12s;
+}
+.sk-seg button:hover { border-color: var(--accent); }
+.sk-seg button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ボタン（Generate / Export 等） */
+.sk-btn {
+  font: inherit; font-size: 12px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); color: var(--ink);
+  cursor: pointer; transition: background .12s, border-color .12s; width: 100%;
+}
+.sk-btn:hover { border-color: var(--accent); }
+.sk-btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 600; }
+
+/* 小ボタン（🎲 等） */
+.sk-mini {
+  font: inherit; font-size: 13px; line-height: 1; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); cursor: pointer;
+}
+.sk-mini:hover { border-color: var(--accent); }

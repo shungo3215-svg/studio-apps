@@ -1,0 +1,2193 @@
+<!doctype html>
+<html data-sm-build="436c68c・2026-10-28 09:33" data-sm-app="solid-spline" lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="studio-spec" content="type:描いて増やす">
+<link rel="stylesheet" href="_ext/000_kit/studio2.css?v=0.7.8">
+<title>立体スプライン</title>
+<style>
+  /* 独自CSSは最小限（006_ツールの規格 §6）。盤面（正面・下段のレイヤー/側面）と貼り付け欄の見た目だけ。 */
+  #stage{ flex-direction:column; align-items:stretch; gap:var(--sp-m); }
+  #frontWrap{ width:100%; height:60vh; max-height:640px; min-height:360px; }
+  #sideWrap{ width:100%; background:var(--surface); border:var(--bd) solid var(--outline); border-radius:var(--r-xs); overflow:hidden; }
+  #frontCanvas{ width:100%; height:100%; display:block; background:var(--surface); border:var(--bd) solid var(--outline); border-radius:var(--r-xs); touch-action:none; }
+  #sideCanvas{ width:100%; height:320px; display:block; background:var(--surface); touch-action:none; }
+  .center{ fill:none; stroke:#999999; stroke-width:0.5; }
+  .overlaySrc{ fill:none; stroke:#bbbbbb; stroke-width:0.5; stroke-dasharray:2 2; }
+  .pt{ cursor:pointer; }
+  .pt circle{ fill:var(--surface); stroke:var(--onSurfaceVariant); stroke-width:1.5; }
+  .pt.anchor circle{ fill:var(--onSurfaceVariant); }
+  .pt.sel circle{ fill:var(--primary); stroke:var(--primary); }
+  #frontCanvas.no-drag .pt{ cursor:default; }
+  #pasteBox, #sidePasteBox{ display:flex; flex-direction:column; gap:var(--sp-xs); padding:var(--pad); border-bottom:var(--bd) solid var(--outlineBright); }
+  #pasteBox label, #sidePasteBox label{ font:700 11px/1.3 var(--font); color:var(--onSurfaceVariant); letter-spacing:.08em; }
+  #pasteBox textarea, #sidePasteBox textarea{ width:100%; box-sizing:border-box; min-height:44px; font:400 11px/1.5 var(--font); resize:vertical; }
+  #pasteBox .row, #sidePasteBox .row{ display:flex; gap:var(--sp-s); align-items:center; }
+  /* 段6是正: 取り消す・やり直す（⌘Z/⇧⌘Zのみ・パネルボタンは撤去）は消し、「戻す」は
+     「この文字列を読み込む」と同じ行に並べる（コーディネーター指示 2026-09-25）。 */
+  #pasteBox .row .btn, #sidePasteBox .row .btn{ flex:1 1 auto; min-width:0; justify-content:center; white-space:nowrap; }
+  #errBar{ font:400 12px/1.5 var(--font); color:#b0463e; max-width:100%; }
+  #errBar:empty{ display:none; }
+  /* 段8: 下段=「レイヤー」パネル（コーディネーター指示2026-09-26「下のパネルを使うことないので
+     そこに追加できないか」）。見出し＋一覧＋設定欄の3段。側面（奥行きドラッグ編集）は既定で隠し、
+     見出しの「側面」ボタンで切り替える（機能は消さない）。 */
+  #layerHead{ display:flex; align-items:center; justify-content:space-between; padding:var(--pad); border-bottom:var(--bd) solid var(--outlineBright); }
+  #layerHead .layer-title{ font:700 12px/1.3 var(--font); color:var(--onSurfaceVariant); letter-spacing:.08em; }
+  #layerBody{ display:flex; gap:var(--sp-m); padding:var(--pad); align-items:flex-start; }
+  #layerListCol{ flex:0 0 auto; width:240px; min-width:0; display:flex; flex-direction:column; gap:var(--sp-s); }
+  #layerSettingsCol{ flex:1 1 auto; min-width:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:24px; align-content:start; }
+  .ov-load{ display:flex; flex-direction:column; gap:var(--sp-xs); }
+  .ov-load label{ font:700 11px/1.3 var(--font); color:var(--onSurfaceVariant); letter-spacing:.08em; }
+  .ov-load textarea{ width:100%; box-sizing:border-box; min-height:36px; font:400 11px/1.5 var(--font); resize:vertical; }
+  .ov-load .btn{ align-self:flex-start; }
+  .ov-list{ display:flex; flex-direction:column; gap:var(--sp-xs); max-height:40vh; overflow:auto; }
+  .ov-row{ display:flex; align-items:center; gap:4px; border:var(--bd) solid var(--outline); border-radius:var(--r-xs); padding:2px 4px; font:600 11px/1.4 var(--font); cursor:pointer; background:var(--surface); color:var(--onSurface); }
+  .ov-row.sel{ border-color:var(--primary); color:var(--primary); }
+  .ov-row-label{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ov-thumb{ width:18px; height:18px; flex:0 0 auto; background:var(--surface); border:var(--bd) solid var(--outline); border-radius:2px; }
+  .ov-row-btn{ border:var(--bd) solid var(--outline); border-radius:var(--r-xs); background:var(--surface); color:var(--onSurface); font:700 12px/1 var(--font); width:22px; height:22px; padding:0; cursor:pointer; white-space:nowrap; flex:none; }
+  .ov-row-btn[aria-pressed="false"]{ color:var(--onSurfaceVariant); }
+  #sideToggleBtn{ width:auto; padding:0 8px; }
+  .ov-hint{ font:400 11px/1.5 var(--font); color:var(--onSurfaceVariant); margin:0; padding:var(--pad); }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body data-frame="tool">
+
+<header id="bar"></header>
+
+<div id="main">
+  <div id="stage">
+    <div id="errBar" role="alert"></div>
+    <div id="frontWrap">
+      <svg id="frontCanvas" viewBox="-300 -300 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="正面"></svg>
+    </div>
+    <div id="sideWrap">
+      <div id="layerHead">
+        <span class="layer-title">レイヤー</span>
+        <button type="button" id="sideToggleBtn" class="ov-row-btn" aria-pressed="false">側面</button>
+      </div>
+      <div id="layerBody">
+        <div id="layerListCol">
+          <div class="ov-load">
+            <label for="ovPaste">SVGを貼る</label>
+            <textarea id="ovPaste" aria-label="載せるSVGの文字列" spellcheck="false"></textarea>
+            <button type="button" class="btn" id="ovLoadBtn">追加</button>
+          </div>
+          <div class="ov-list" id="ovList" role="list" aria-label="レイヤー"></div>
+        </div>
+        <div id="layerSettingsCol">
+          <p class="ov-hint" id="layerHint" hidden></p>
+        </div>
+      </div>
+      <svg id="sideCanvas" viewBox="-300 -220 600 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="側面" hidden></svg>
+    </div>
+  </div>
+  <aside id="panel">
+    <div id="pasteBox">
+      <label for="svgPaste">SVGを貼る</label>
+      <textarea id="svgPaste" spellcheck="false" aria-label="SVGの文字列"></textarea>
+      <div class="row">
+        <button type="button" class="btn" id="loadPasteBtn">読み込む</button>
+        <button type="button" class="btn" id="restoreLoadBtn">戻す</button>
+        <button type="button" class="btn" id="viewFrontBtn" title="縦0°・横0°にする">正面から見る</button>
+      </div>
+    </div>
+    <div id="sidePasteBox">
+      <label for="sideSvgPaste">横から見た形</label>
+      <textarea id="sideSvgPaste" spellcheck="false" aria-label="横から見た形のSVGの文字列"></textarea>
+      <div class="row">
+        <button type="button" class="btn" id="loadSidePasteBtn">読み込む</button>
+        <button type="button" class="btn" id="removeSideBtn">外す</button>
+        <button type="button" class="btn" id="viewSideBtn" title="縦0°・横90°にする">横から見る</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script src="_ext/157_線幅の抑揚/src/geom.js?v=0.1.0"></script>
+<script src="_ext/157_線幅の抑揚/src/svgin.js?v=0.1.0"></script>
+<script src="_ext/157_線幅の抑揚/src/outline.js?v=0.1.0"></script>
+<script src="_ext/157_線幅の抑揚/src/depth.js?v=0.1.0"></script>
+<script src="_ext/157_線幅の抑揚/src/profile.js?v=0.1.0"></script>
+<script src="bspline.js?v=0.1.0"></script>
+<script src="dual_view.js?v=0.1.1"></script>
+<script src="swell_import.js?v=0.1.0"></script>
+<script src="overlay.js?v=0.1.0"></script>
+<script src="_ext/000_kit/studio-kit.js?v=0.7.10"></script>
+<script src="_ext/000_kit/scene-export.js?v=0.7.6"></script>
+<script>
+/* ============================================================
+   立体スプライン（spline3d）— 000_README.md 仕様。
+   閉じた線を空間に置いた「線が通る点＝アンカー」（位置・奥行き・線幅）から
+   3次Bスプライン1本を作り、2つの角度で回して帯にする。「線幅の抑揚」の
+   輪郭化・回転投影・小片分けの演算（outline.js/depth.js）はそのまま流用し、
+   中心線の生成だけをbspline.jsの閉じた3次Bスプラインに置き換える。ここは
+   DOM／取り込み／描画／編集操作／書き出しだけを持つ（幾何演算の本体は
+   bspline.js/outline.js/depth.js）。
+   段3b（2026-09-25）: 画面で触るデータはアンカー（state.anchors・線が必ず通る点）
+   に統一した。Bスプラインの制御点（bspline.jsのctrl）は状態として持たず、
+   BSpline.interpolateClosed(state.anchors) で使うたびに内部導出する
+   （逆変換はBSpline.knotPoints）。
+   ============================================================ */
+var SVGNS = 'http://www.w3.org/2000/svg';
+var TOOL = 'spline3d';
+var PJ = '159_立体スプライン';
+var LAW = '閉じた線を空間の「線が通る点」（位置・奥行き・線幅）から3次Bスプライン1本を作り、2つの角度で回して帯にする';
+var TOOL_VERSION = '0.1.0';
+var PARAMS_VERSION = 4; // 段3b: params.ctrl → params.anchors+isAnchor（v1→v2）。段8: overlays.behind → layerOrder（v2→v3）。複数の輪: params.anchors等 → params.loops（v3→v4）
+var HALF = 300;       // 正面viewBoxの半幅（線幅の抑揚と同じ世界座標スケール）
+var HALF_Z = 220;     // 側面viewBoxの半分の高さ（縦=z。奥行きスライダーの範囲±200が枠内に収まる値）
+var PASTE_SCALE = 260; // 貼り付け時の正規化スケール（HALFより小さくして、上端のアンカーが枠から切れないようにする）
+var sideSvgPasteEl = document.getElementById('sideSvgPaste');
+var SPP = 64;         // 描画1回ごとのevalClosedのスパンあたり点数（改訂2）
+var PIECE_COUNT = 64; // 帯を分ける小片数（Depth.splitBandPieces）
+
+var frontCanvas = document.getElementById('frontCanvas');
+var sideCanvas = document.getElementById('sideCanvas');
+var frontArtGroup = null; // render()が毎回作り直す、インスタONの版面フィットを掛けるグループ（006 §0）
+var errBar = document.getElementById('errBar');
+
+/* --- 状態 ------------------------------------------------------------- */
+var state = {
+  /* 複数の輪: 輪1本ぶんのデータ（anchors / isAnchor / sourceSegs / sourceText / sourceSegsSide /
+     sourceTextSide）は state.loops[i] に持つ。下のgetter/setterが「作業中の輪（activeLoop）」へ
+     透過させるので、既存の state.anchors などの読み書きはそのまま作業中の輪に効く。
+       anchors: 線が通る点 [[x,y,z,w] …]（本体のデータモデル。画面で触るのはここ）
+       isAnchor: anchorsと同じ長さの真偽配列（Illustrator由来か）。「等間隔」置き方や描いた円ではnull
+       sourceText: 貼ったSVGの文字列（封筒に同梱）／sourceSegs: 貼ったパスのセグメント（世界座標=HALF基準にスケール済み）
+       sourceSegsSide / sourceTextSide: 「横から見た形」のセグメント（同じスケール）と文字列。あれば正面×横の2方向で3D曲線を作る */
+  loops: [],         // 輪の配列 [{ id, anchors, isAnchor, sourceSegs, sourceText, sourceSegsSide, sourceTextSide, ctrlCount, visible }]
+  activeLoop: 0,     // 作業中の輪の index
+  nextLoopId: 1,     // 次に作る輪へ振るid（レイヤー名「帯 N」に使う）
+  sourceOverlaySegs: null, // 段2C: 線幅の抑揚のbasePath（元の平面の線。重ね描き専用・書き出しには入れない）
+  selected: -1,      // 作業中の輪の anchors の index。-1=未選択
+  overlays: [],      // 「載せるもの」（段4是正: overlay.js Overlay.importSvgで取り込んだ項目）
+  selectedOverlay: -1, // overlays の index。-1=未選択
+  layerOrder: [],    // レイヤーの並び順（先頭=前面）。'loop:<輪のid>'＝帯・それ以外はoverlayのid（文字列）
+  nextOverlayId: 1      // 次に載せるものへ振るid（レイヤー名「レイヤー N」に使う。削除しても増え続ける）
+};
+function newLoop(id) {
+  return { id: id, anchors: [], isAnchor: null, sourceSegs: null, sourceText: '', sourceSegsSide: null, sourceTextSide: '', ctrlCount: 16, visible: true };
+}
+function activeLoopObj() { return state.loops[state.activeLoop] || null; }
+function activeLoopId() { var l = activeLoopObj(); return l ? l.id : 1; }
+function loopIndexById(id) {
+  for (var i = 0; i < state.loops.length; i++) if (state.loops[i].id === id) return i;
+  return -1;
+}
+['anchors', 'isAnchor', 'sourceSegs', 'sourceText', 'sourceSegsSide', 'sourceTextSide'].forEach(function (k) {
+  Object.defineProperty(state, k, {
+    enumerable: true, configurable: true,
+    get: function () {
+      var l = activeLoopObj();
+      if (l) return l[k];
+      return k === 'anchors' ? [] : ((k === 'sourceText' || k === 'sourceTextSide') ? '' : null);
+    },
+    set: function (v) {
+      var l = activeLoopObj();
+      if (!l) { l = newLoop(state.nextLoopId++); state.loops.push(l); state.activeLoop = state.loops.length - 1; }
+      l[k] = v;
+    }
+  });
+});
+/* 輪iを作業中にして fn を呼び、終わったら元の輪へ戻す（rebuildAnchorsFromSource など「作業中の輪」に効く関数を他の輪へ使う） */
+function withLoop(i, fn) {
+  var prev = state.activeLoop;
+  state.activeLoop = i;
+  try { return fn(); } finally { state.activeLoop = prev; }
+}
+function clampCtrlCount(n) { return Math.min(200, Math.max(8, Math.round(+n) || 16)); }
+var MAX_OVERLAYS = (typeof Overlay !== 'undefined' && Overlay.MAX_ITEMS) || 8;
+/* 1個の「載せたもの」の既定値（置き方='line'=沿わせる／'space'=空間に置く）。
+   parts は Overlay.importSvg の戻り値そのまま（正規化済み・DOM非依存）。 */
+function makeOverlayItem(imported) {
+  return {
+    id: 0, // 呼び出し元で state.nextOverlayId から振る
+    parts: imported.parts, bboxW: imported.bboxW, bboxH: imported.bboxH,
+    mode: 'line',
+    // 載せた直後に見える大きさ: 高さ≒48px（帯が細くても見える）・長さは絵の縦横比から
+    pos: 0, len: 30, width: Math.min(20, Math.max(1, Math.round(48 / Math.max(1, values.baseWidth || 6) * 10) / 10)), offset: 0, flip: false,   // 沿わせる
+    x: 0, y: 0, depth: 0, size: 80, rot: 0,                 // 空間に置く
+    visible: true,                                           // 段8: レイヤー一覧の「表示」（OFFなら書き出しにも入れない）
+    loopId: activeLoopId(),                                  // 沿わせる帯（載せた時の作業中の輪のid）
+    color: null                                              // レイヤーの色（null＝貼ったSVGの色のまま・'none'＝塗りなし・#hex＝全部この色）
+  };
+}
+/* レイヤーの色: 上部バーの見本に出す色（未指定なら貼ったSVGの最初の塗り/線の色）。 */
+function overlayDisplayColor(ov) {
+  if (ov.color != null) return ov.color;
+  for (var i = 0; i < (ov.parts || []).length; i++) {
+    var c = ov.parts[i].fill || ov.parts[i].stroke;
+    if (c) return c;
+  }
+  return '#000000';
+}
+/* 1つのpartを描く塗り・線。色を指定したら、塗りのあるpartは塗りを・線のあるpartは線をその色にする。 */
+function overlayPartPaint(ov, part) {
+  if (ov.color == null) return { fill: part.fill || null, stroke: part.stroke || null };
+  if (ov.color === 'none') return { fill: null, stroke: part.stroke || null };
+  return { fill: part.fill ? ov.color : null, stroke: part.stroke ? ov.color : null };
+}
+function setSelectedOverlayColor(v) {
+  var ov = state.overlays[state.selectedOverlay];
+  if (!ov) return;
+  ov.color = v;
+  renderOverlayList();
+  render();
+  pushHistory();
+}
+function overlayIndexById(id) {
+  for (var i = 0; i < state.overlays.length; i++) if (state.overlays[i].id === id) return i;
+  return -1;
+}
+/* 段8: layerOrderを実データと矛盾なく保つ（削除で残った古いid・追加でまだ入っていないidを整理する）。
+   輪のトークンは 'loop:<id>'（旧 'band' は先頭の輪へ読み替える）。輪が消えた「載せるもの」の loopId は
+   残っている先頭の輪へ付け替える。renderOverlayList/buildOrderedLayersの入口で毎回呼ぶ。 */
+function sanitizeLayerOrder() {
+  var firstLoopId = state.loops.length ? state.loops[0].id : 1;
+  state.overlays.forEach(function (ov) { if (loopIndexById(ov.loopId) < 0) ov.loopId = firstLoopId; });
+  var seen = {}, out = [];
+  (state.layerOrder || []).forEach(function (tok) {
+    tok = String(tok);
+    if (tok === 'band') tok = 'loop:' + firstLoopId; // 旧版の帯の固定行
+    if (seen[tok]) return;
+    if (tok.indexOf('loop:') === 0) { if (loopIndexById(+tok.slice(5)) < 0) return; }
+    else if (overlayIndexById(+tok) < 0) return; // 削除済みのidは捨てる
+    out.push(tok); seen[tok] = true;
+  });
+  for (var li = state.loops.length - 1; li >= 0; li--) { // 一覧にまだ無い輪は先頭＝前面に足す（1本目が最前面）
+    var lk = 'loop:' + state.loops[li].id;
+    if (!seen[lk]) { out.unshift(lk); seen[lk] = true; }
+  }
+  state.overlays.forEach(function (ov) { // 一覧にまだ無い（新しく載せた）idは先頭＝前面に足す
+    var key = String(ov.id);
+    if (!seen[key]) { out.unshift(key); seen[key] = true; }
+  });
+  state.layerOrder = out;
+}
+function nextIdFromOverlays(list) {
+  var max = 0;
+  (list || []).forEach(function (o) { if (o && typeof o.id === 'number' && o.id > max) max = o.id; });
+  return max + 1;
+}
+/* 段6/段8: 封筒params.overlays（正規化済みの折れ線・色・設定そのもの）とlayerOrderから復元する。
+   旧SVG（overlaysフィールドが無い書き出し）はlistがnull/undefinedになるので空にする。
+   選択（selectedOverlay）はどの復元経路でも-1に戻す（パネル側は呼び出し元でsync）。 */
+function restoreOverlaysFromParams(list, layerOrder) {
+  state.overlays = Array.isArray(list) ? list.map(function (ov, i) {
+    var item = makeOverlayItem({ parts: Array.isArray(ov.parts) ? ov.parts : [], bboxW: ov.bboxW || 1, bboxH: ov.bboxH || 1 });
+    ['mode', 'pos', 'len', 'width', 'offset', 'flip', 'x', 'y', 'depth', 'size', 'rot', 'visible', 'color', 'loopId'].forEach(function (k) {
+      if (ov[k] !== undefined) item[k] = ov[k];
+    });
+    item.id = (typeof ov.id === 'number' && ov.id > 0) ? ov.id : (i + 1);
+    if (item.visible === undefined) item.visible = true;
+    return item;
+  }) : [];
+  state.nextOverlayId = nextIdFromOverlays(state.overlays);
+  state.layerOrder = Array.isArray(layerOrder) && layerOrder.length ? layerOrder.slice() : (function () {
+    // 既定: 新しく作られたものほど前面（旧gFrontの追記順と同じ見え方）
+    return state.overlays.map(function (o) { return String(o.id); }).reverse().concat(state.loops.map(function (l) { return 'loop:' + l.id; }));
+  })();
+  state.selectedOverlay = -1;
+  if (typeof updateOverlayRowsVisibility === 'function') updateOverlayRowsVisibility();
+  if (typeof renderOverlayList === 'function') renderOverlayList();
+}
+
+/* Bスプラインの制御点は状態として持たず、使うたびにここで導出する（段3b）。 */
+function deriveCtrl(anchorsArr) { return BSpline.interpolateClosed(anchorsArr); }
+
+/* --- 段4是正: 再生中の累積回転は3x3行列Pで持つ（画面の軸まわり・Euler角の折り返しなし）。
+   行優先の長さ9配列。Rx/RyはDepth.rotateProjectと同じ符号規約（X軸=縦・Y軸=横）。
+   毎フレーム P = Rx(dPitch)·Ry(dYaw)·P と左から掛け続けるので、縦の往復（±90°で折り返す）
+   が要らなくなる。停止してもPは保持する（絵が跳ばない）。「正面に戻す」でP=単位行列に戻す。
+   depth.js（Depth.rotateProject）はここでは触らない＝先にrotateProjectで角度スライダーの
+   向きを作り、その結果にPを掛けて最終の(x,y,z)にする。 ------------------------------------- */
+var playState = { active: false, lastT: null, elapsed: 0, wobbleFactor: 1, raf: null, P: null };
+function mat3Identity() { return [1, 0, 0, 0, 1, 0, 0, 0, 1]; }
+function mat3Mul(a, b) {
+  var out = new Array(9);
+  for (var r = 0; r < 3; r++) {
+    for (var c = 0; c < 3; c++) {
+      out[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+    }
+  }
+  return out;
+}
+function mat3Apply(m, p) {
+  return [
+    m[0] * p[0] + m[1] * p[1] + m[2] * p[2],
+    m[3] * p[0] + m[4] * p[1] + m[5] * p[2],
+    m[6] * p[0] + m[7] * p[1] + m[8] * p[2]
+  ];
+}
+function mat3RotX(deg) {
+  var r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  return [1, 0, 0, 0, c, -s, 0, s, c];
+}
+function mat3RotY(deg) {
+  var r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  return [c, 0, s, 0, 1, 0, -s, 0, c];
+}
+playState.P = mat3Identity();
+// Depth.rotateProjectの戻り値({x,y,z}の配列)にPを掛けた新しい配列を返す（DOM非依存）。
+function applyViewRot(rotatedArr) {
+  var P = playState.P;
+  return rotatedArr.map(function (r) {
+    var v = mat3Apply(P, [r.x, r.y, r.z]);
+    return { x: v[0], y: v[1], z: v[2] };
+  });
+}
+
+/* --- 色（段6: 上部バーのスウォッチへ。パネルには置かない） --------------------
+   コーディネーター指示（2026-09-25）「カラーは ミニマムにして 上のバーに持っていって
+   欲しい」。規定パレット（Studio.PALETTES・006_ツールの規格 §5 COLOR-00）を必ず初期値
+   にする（ユーザー2026-09-25「色も必ず選べるようにして プリセットを必ず使う感じで」）。
+   既定はkitのパレット選択（select の先頭項目）と同じ PALETTES[0]。3色を
+   塗り（帯）・塗り層・背景の順に割り当てる（#2b2b2b/#a1cbedの直書き既定は廃止）。 */
+// 規定パレットから初期色を選ぶ: 帯＝いちばん暗い色、塗り層＝白以外の残りの色（背景は§5で白）
+function pickDefaultColors() {
+  var cs = (DEFAULT_PALETTE_COLORS || []).slice();
+  function lum(h) { var n = parseInt(String(h).slice(1), 16); return ((n >> 16) & 255) * .299 + ((n >> 8) & 255) * .587 + (n & 255) * .114; }
+  cs.sort(function (a, b) { return lum(a) - lum(b); });
+  var band = cs[0] || '#2b2b2b';
+  var rest = cs.filter(function (c) { return c !== band && lum(c) < 245; });
+  return { band: band, layer: rest[0] || band };
+}
+var DEFAULT_PALETTE_COLORS = (Studio.PALETTES && Studio.PALETTES[0] && Studio.PALETTES[0].colors) || ['#2b2b2b', '#a1cbed', '#ffffff'];
+// 色はパネルのcolorsetではなくcolorStateで持つ（塗り（帯）・塗り層・背景）。書き出し・描画は
+// すべてこの3値を読む。上部バーのスウォッチ（Studio.stageBarのopts.colors）だけが書き換える。
+/* --- 書き出しの版面（§13 VID-01）。大きさ（4:5 等）に合わせて正面の表示と書き出しの範囲を決める。
+   短い方の辺を 2*HALF（=作品の座標）に合わせ、長い方へ広げる。ガイドは画面だけ（書き出さない） --- */
+var frameBox = null;
+function setFrame(pxW, pxH, key) {
+  var a = pxW / pxH, fw = 2 * HALF, fh = 2 * HALF;
+  if (a < 1) fh = fw / a; else if (a > 1) fw = fh * a;
+  frameBox = { x: -fw / 2, y: -fh / 2, w: fw, h: fh, pxW: pxW, pxH: pxH, key: key };
+  var m = Math.max(fw, fh) * 0.06;
+  frontCanvas.setAttribute('viewBox', [frameBox.x - m, frameBox.y - m, fw + 2 * m, fh + 2 * m].join(' '));
+}
+function drawFrameGuide() {
+  if (!frameBox) return;
+  var f = frameBox, g = document.createElementNS(SVGNS, 'g');
+  g.setAttribute('class', 'frame-guide'); g.setAttribute('pointer-events', 'none');
+  var r = document.createElementNS(SVGNS, 'rect');
+  r.setAttribute('x', f.x); r.setAttribute('y', f.y); r.setAttribute('width', f.w); r.setAttribute('height', f.h);
+  r.setAttribute('fill', 'none'); r.setAttribute('stroke', '#8A8A8A'); r.setAttribute('stroke-width', 1);
+  r.setAttribute('stroke-dasharray', '4 3'); r.setAttribute('vector-effect', 'non-scaling-stroke');
+  g.appendChild(r);
+  // 横幅の寸法線（版面の上）: 端の目盛り＋「1080 px」
+  var y = f.y - Math.max(f.w, f.h) * 0.03, tick = Math.max(f.w, f.h) * 0.012;
+  function line(x1, y1, x2, y2) {
+    var l = document.createElementNS(SVGNS, 'line');
+    l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+    l.setAttribute('stroke', '#8A8A8A'); l.setAttribute('stroke-width', 1); l.setAttribute('vector-effect', 'non-scaling-stroke');
+    g.appendChild(l);
+  }
+  line(f.x, y, f.x + f.w, y); line(f.x, y - tick, f.x, y + tick); line(f.x + f.w, y - tick, f.x + f.w, y + tick);
+  var t = document.createElementNS(SVGNS, 'text');
+  t.setAttribute('x', f.x + f.w / 2); t.setAttribute('y', y - tick * 1.3); t.setAttribute('text-anchor', 'middle');
+  t.setAttribute('font-size', Math.max(f.w, f.h) * 0.022); t.setAttribute('fill', '#6F6F6F');
+  t.setAttribute('font-family', 'ui-monospace, Menlo, monospace'); t.setAttribute('font-weight', '600');
+  t.textContent = f.key + ' · ' + f.pxW + ' × ' + f.pxH + ' px';
+  g.appendChild(t);
+  frontCanvas.appendChild(g);
+}
+
+// INIT-01（最初の形）: 帯・塗り層とも規定パレット navy の青（PALETTES[0]の先頭色 #0044CC）、背景は白
+var INIT_BLUE = DEFAULT_PALETTE_COLORS[0] || '#0044CC';
+var colorState = { fill: INIT_BLUE, fillLayer: INIT_BLUE, bg: '#FFFFFF' };
+function setColorState(key, v) {
+  colorState[key] = v;
+  render();
+  pushHistory();
+}
+
+/* --- 上部バー ------------------------------------------------------------ */
+// Serendie Symbols outlined/file-download.svg（000_kit/symbols・MIT）。SVG書き出し・
+// シーンJSON書き出しの両方に使う（コーディネーター指示: アイコン化してミニマムに）。
+var ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.50095 3.64935C9.66036 3.48994 9.87656 3.40039 10.102 3.40039H18.7484C19.2179 3.40039 19.5984 3.78095 19.5984 4.25039V19.7504C19.5984 20.2198 19.2179 20.6004 18.7484 20.6004H5.24844C4.77899 20.6004 4.39844 20.2198 4.39844 19.7504V9.10394C4.39844 8.87851 4.48799 8.66231 4.6474 8.5029L9.50095 3.64935ZM10.247 4.60039L5.59844 9.24892V19.4004H18.3984V4.60039H10.247ZM5.4962 9.35116L5.49592 9.35143L5.24844 9.10394L5.49592 9.35143C5.49602 9.35134 5.49611 9.35125 5.4962 9.35116ZM10.3492 4.49816C10.3493 4.49807 10.3494 4.49797 10.3495 4.49788L10.102 4.25039L10.3495 4.49788L10.3492 4.49816ZM11.3983 13.5522L9.60457 11.7584L8.75604 12.607L11.3967 15.2477C11.7287 15.5796 12.2669 15.5796 12.5988 15.2477L15.2391 12.6074L14.3906 11.7588L12.5983 13.5511L12.5979 9.00009L11.3979 9.00019L11.3983 13.5522Z" fill="currentColor"/></svg>';
+var bar = Studio.appBar('#bar', {
+  name: '立体スプライン', sub: 'SPLINE3D',
+  onCopy: doCopySVG, onSvg: doExportSVG,
+  copyLabel: 'コピー',
+  svgLabel: 'SVG', svgTitle: 'SVGを書き出し', svgAriaLabel: 'SVGを書き出し', svgIcon: ICON_DOWNLOAD,
+  extra: [
+    { label: 'JSON', icon: ICON_DOWNLOAD, title: 'シーンJSONを書き出し', ariaLabel: 'シーンJSONを書き出し', onClick: doExportSceneJSON }
+  ]
+});
+
+/* --- 上部バー共通操作（006 §6・§13）。大きさ・色（塗り（帯）・塗り層・背景）・再生・
+   A/B・映像をここへ集約する（KEY-04: 再生・背景の入口はそれぞれ1つだけにする）。
+   getParams/apply/frame/metaはこのファイル内の関数（関数宣言はホイストされるため、
+   このすぐ下で定義していない関数もここから参照できる）。 --------------------------- */
+var sb = Studio.stageBar('#bar', {
+  onSize: function (w, h, key) { setFrame(w, h, key); render(); },
+  colors: [
+    { key: 'fill', label: '塗り（帯）', value: colorState.fill },
+    { key: 'fillLayer', label: '塗り層', value: colorState.fillLayer },
+    { key: 'bg', label: '背景', value: colorState.bg },
+    { key: 'ovColor', label: 'レイヤーの色', value: '#000000' } // 選んだレイヤーの色（選択中だけ見本を出す）
+  ],
+  palettes: true,
+  onColorChange: function (key, v) { if (key === 'ovColor') setSelectedOverlayColor(v); else setColorState(key, v); },
+  getParams: motionParams,
+  integerKeys: ['ctrlCount', 'anchorPointCount', 'depthSpreadN', 'depthRuleN', 'playWobble', 'baseWidth', 'ptIndex'],
+  apply: applyMotionParams,
+  play: function () { togglePlayback(); },
+  frame: frameForExport,
+  meta: exportMeta
+});
+(function () { var k = Object.keys(Studio.SIZES)[0], s = Studio.SIZES[k]; setFrame(s[0], s[1], k); })();   // 既定の大きさ（4:5）で版面を置く
+
+/* --- パネル -------------------------------------------------------------- */
+var spec = [
+  { type: 'group', label: 'アンカー' },
+  { type: 'button', key: 'placeCtrlBtn', label: 'アンカーを置く', onClick: placeDefaultCircle },
+  { type: 'select', key: 'ctrlPlacement', label: 'アンカーの置き方', value: 'even', options: [
+    { value: 'even', label: '等間隔' },
+    { value: 'anchor', label: 'アンカーごと' }
+  ] },
+  { type: 'range', key: 'ctrlCount', label: 'アンカーの数', unit: '個', min: 8, max: 200, step: 1, integer: true, value: 16 },
+  { type: 'range', key: 'anchorPointCount', label: '置いた点の数', unit: '個', min: 0, max: 400, step: 1, integer: true, value: 0 },
+  { type: 'checkbox', key: 'overlaySource', label: '元の線', value: true },
+  { type: 'checkbox', key: 'showAnchors', label: 'アンカー表示', value: true },
+
+  { type: 'group', label: '奥行き' },
+  { type: 'range', key: 'depthSpreadN', label: '一緒に動く点', unit: '点', min: 0, max: 8, step: 1, integer: true, value: 2 },
+  { type: 'select', key: 'depthRule', label: '規則', value: 'alt', options: [
+    { value: 'same', label: 'すべて同じ' },
+    { value: 'alt', label: '交互' },
+    { value: 'wave', label: '波' },
+    { value: 'ramp', label: 'だんだん' }
+  ] },
+  { type: 'select', key: 'depthRuleTarget', label: '対象', value: 'all', options: [
+    { value: 'all', label: 'すべてのアンカー' },
+    { value: 'anchor', label: 'イラレのアンカー' }
+  ] },
+  { type: 'range', key: 'depthRuleA', label: '値A', unit: 'px', min: -200, max: 200, step: 1, value: -60 },
+  { type: 'range', key: 'depthRuleB', label: '値B', unit: 'px', min: -200, max: 200, step: 1, value: 60 },
+  { type: 'range', key: 'depthRuleN', label: '回数', unit: '回', min: 1, max: 12, step: 1, integer: true, value: 2 },
+  { type: 'button', key: 'depthRuleBtn', label: '規則で作る', onClick: applyDepthRule },
+  { type: 'range', key: 'depthSwing', label: '振れ幅', unit: 'px', min: 0, max: 200, step: 1, value: 100 },
+  { type: 'checkbox', key: 'depthInvert', label: '太い方を奥に', value: false },
+  { type: 'button', key: 'depthFromWidthBtn', label: '幅から作る', onClick: applyDepthFromWidth },
+  { type: 'button', key: 'depthZeroBtn', label: 'すべて0', onClick: resetAllDepthToZero },
+
+  { type: 'group', label: '載せるもの' },
+  { type: 'select', key: 'ovMode', label: '置き方', value: 'line', options: [
+    { value: 'line', label: '沿わせる' },
+    { value: 'space', label: '空間' }
+  ] },
+  { type: 'range', key: 'ovPos', label: '位置', unit: '%', min: 0, max: 100, step: 1, value: 0 },
+  { type: 'range', key: 'ovLen', label: '長さ', unit: '%', min: 1, max: 300, step: 1, value: 100 },
+  { type: 'range', key: 'ovWidth', label: '幅', unit: '倍', min: 0.1, max: 20, step: 0.1, value: 1 },
+  { type: 'range', key: 'ovOffset', label: 'ずらし', unit: 'px', min: -200, max: 200, step: 1, value: 0 },
+  { type: 'checkbox', key: 'ovFlip', label: '裏返す', value: false },
+  { type: 'range', key: 'ovX', label: 'x', unit: 'px', min: -300, max: 300, step: 1, value: 0 },
+  { type: 'range', key: 'ovY', label: 'y', unit: 'px', min: -300, max: 300, step: 1, value: 0 },
+  { type: 'range', key: 'ovDepth', label: '奥行き', unit: 'px', min: -200, max: 200, step: 1, value: 0 },
+  { type: 'range', key: 'ovSize', label: '大きさ', unit: 'px', min: 1, max: 400, step: 1, value: 80 },
+  { type: 'range', key: 'ovRot', label: '回転', unit: '°', min: -180, max: 180, step: 1, value: 0 },
+
+  { type: 'group', label: '向き' },
+  { type: 'range', key: 'angleX', label: '縦に回す', unit: '°', min: -180, max: 180, step: 1, value: 0 },
+  { type: 'range', key: 'angleY', label: '横に回す', unit: '°', min: -180, max: 180, step: 1, value: 0 },
+  { type: 'button', key: 'resetAngleBtn', label: '正面に戻す', onClick: resetAngle },
+
+  { type: 'group', label: '再生' },
+  { type: 'range', key: 'playSpeedY', label: '横に回す速度', unit: '°/秒', min: -180, max: 180, step: 1, value: 30 },
+  { type: 'range', key: 'playSpeedX', label: '縦に回す速度', unit: '°/秒', min: -90, max: 90, step: 1, value: 0 },
+  { type: 'range', key: 'playWobble', label: '奥行きの揺れ', unit: '%', min: 0, max: 100, step: 1, integer: true, value: 0 },
+  { type: 'range', key: 'playPeriod', label: '揺れの周期', unit: '秒', min: 0.5, max: 10, step: 0.5, value: 3 },
+
+  { type: 'group', label: '幅' },
+  { type: 'range', key: 'baseWidth', label: '幅', unit: 'px', min: 1, max: 80, step: 1, integer: true, value: 6 },
+
+  { type: 'group', label: '選んだアンカー' },
+  { type: 'range', key: 'ptIndex', label: '番号', unit: '', min: 0, max: 199, step: 1, integer: true, value: 0 },
+  { type: 'range', key: 'ptZ', label: '奥行き', unit: 'px', min: -200, max: 200, step: 1, value: 0 },
+  { type: 'range', key: 'ptW', label: '幅', unit: 'px', min: 1, max: 120, step: 1, value: 6 }
+];
+// 載せるもの（段7・段8）の行キー。panel の初期 change より前に要る
+var OVERLAY_LABELS = { ovMode: '置き方', ovPos: '位置', ovLen: '長さ', ovWidth: '幅', ovOffset: 'ずらし', ovFlip: '裏返す', ovX: 'x', ovY: 'y', ovDepth: '奥行き', ovSize: '大きさ', ovRot: '回転' };
+var OVERLAY_FIELD_MAP = { ovMode: 'mode', ovPos: 'pos', ovLen: 'len', ovWidth: 'width', ovOffset: 'offset', ovFlip: 'flip', ovX: 'x', ovY: 'y', ovDepth: 'depth', ovSize: 'size', ovRot: 'rot' };
+var OVERLAY_PANEL_KEYS = Object.keys(OVERLAY_LABELS);
+var values = Studio.panel('#panel', spec, function (v, key) {
+  if (key === 'ctrlCount') { var cl = activeLoopObj(); if (cl) cl.ctrlCount = values.ctrlCount | 0; rebuildAnchorsFromSource(); render(); pushHistory(); return; } // アンカーの数は輪ごと
+  if (key === 'ctrlPlacement') { updateCtrlPlacementVisibility(); rebuildAnchorsFromSource(); render(); pushHistory(); return; }
+  if (key === 'baseWidth') { applyBaseWidthToAll(); render(); pushHistory(); return; }
+  if (key === 'ptIndex') { selectPoint(Math.max(-1, Math.min(state.anchors.length - 1, values.ptIndex))); return; }
+  if (key === 'ptZ' || key === 'ptW') { applyPanelToSelected(key); pushHistory(); return; }
+  if (OVERLAY_PANEL_KEYS.indexOf(key) >= 0) { applyPanelToSelectedOverlay(key); render(); pushHistory(); return; }
+  render();
+});
+
+function findBtnByLabel(labelText) {
+  var btns = document.querySelectorAll('#panel .sk-btn');
+  for (var i = 0; i < btns.length; i++) if (btns[i].textContent === labelText) return btns[i];
+  return null;
+}
+// 段6是正: 取り消す・やり直すのパネルボタンは撤去（⌘Z/⇧⌘Zのキーは残す・Studio.keysで配線）。
+// 「戻す」は#pasteBox内の静的HTML（この文字列を読み込む、の隣）に配線する。
+document.getElementById('restoreLoadBtn').addEventListener('click', restoreLoadPoint);
+
+var ctrlCountRow = findRowByLabel('アンカーの数');
+var ctrlCountRangeInput = ctrlCountRow ? ctrlCountRow.querySelector('input[type=range]') : null;
+var anchorCountRow = findRowByLabel('置いた点の数');
+// 段3c是正: 「置いた点の数」はスライダーを持たない読み取り専用の数値表示にする（DOMから
+// input[type=range]を除去。disabled/hiddenだけではquerySelectorAllで数え続けてしまうため）。
+(function () {
+  if (!anchorCountRow) return;
+  var rangeInput = anchorCountRow.querySelector('input[type=range]');
+  var numInput = anchorCountRow.querySelector('input.sk-num');
+  if (rangeInput) rangeInput.remove();
+  if (numInput) numInput.readOnly = true;
+})();
+function updateCtrlPlacementVisibility() {
+  var anchorMode = values.ctrlPlacement === 'anchor';
+  if (ctrlCountRow) {
+    ctrlCountRow.hidden = anchorMode; ctrlCountRow.style.display = anchorMode ? 'none' : '';
+    // アンカーごとの時は「アンカーの数」のスライダーも使わないためDOMから外す（等間隔に
+    // 戻したら再挿入）。「置いた点の数」は常にスライダー無しなので、この差でinput[type=range]
+    // の総数が等間隔時より1つ少なくなる。
+    if (ctrlCountRangeInput) {
+      if (anchorMode) { if (ctrlCountRangeInput.parentNode) ctrlCountRangeInput.remove(); }
+      else if (!ctrlCountRangeInput.parentNode) ctrlCountRow.appendChild(ctrlCountRangeInput);
+    }
+  }
+  if (anchorCountRow) { anchorCountRow.hidden = !anchorMode; anchorCountRow.style.display = anchorMode ? '' : 'none'; }
+}
+updateCtrlPlacementVisibility();
+// 段6是正（KEY-04）: 再生ボタンはパネルから撤去し、上部バーの▶（Studio.stageBar）に統一。
+// 表示の切り替え（▶ 再生／■ 停止）はstageBar側が持つ。ここでは状態（playState.active）のみ持つ。
+
+/* --- 段3A: 取り消し・やり直し（履歴スタック。Studio.history・線幅の抑揚と同じ型） --- */
+var hist = Studio.history(100);
+var histTimer = null;
+function pushHistory() {
+  clearTimeout(histTimer);
+  histTimer = setTimeout(function () {
+    hist.push({
+      loops: JSON.parse(JSON.stringify(state.loops)), activeLoop: state.activeLoop, // 複数の輪（輪の追加・削除も⌘Zの対象）
+      angleX: values.angleX, angleY: values.angleY, baseWidth: values.baseWidth,
+      viewRot: playState.P.slice(), // 段4是正: 再生で積んだ画面軸回転も履歴の単位に含める
+      selected: state.selected,
+      overlays: JSON.parse(JSON.stringify(state.overlays)), // 段7: 「載せるもの」も⌘Zの対象に含める
+      selectedOverlay: state.selectedOverlay,
+      layerOrder: state.layerOrder.slice() // 段8: 並び順（前面／後面）も⌘Zの対象に含める
+    });
+  }, 120);
+}
+function restoreLoopsFromHist(s) {
+  state.loops = Array.isArray(s.loops) ? JSON.parse(JSON.stringify(s.loops)) : [];
+  state.activeLoop = (s.activeLoop >= 0 && s.activeLoop < state.loops.length) ? s.activeLoop : 0;
+  state.nextLoopId = Math.max(state.nextLoopId, nextIdFromOverlays(state.loops)); // idは戻しても使い回さない
+}
+function applyHistState(s) {
+  if (!s) return;
+  restoreLoopsFromHist(s);
+  if (typeof syncPanelFromLoop === 'function') syncPanelFromLoop();
+  values.set('angleX', s.angleX || 0);
+  values.set('angleY', s.angleY || 0);
+  values.set('baseWidth', s.baseWidth || 6);
+  playState.P = Array.isArray(s.viewRot) && s.viewRot.length === 9 ? s.viewRot.slice() : mat3Identity();
+  state.selected = (s.selected != null && s.selected >= 0 && s.selected < state.anchors.length) ? s.selected : -1;
+  updateSelectedRowsVisibility();
+  if (state.selected >= 0) syncPanelFromSelected();
+  state.overlays = Array.isArray(s.overlays) ? JSON.parse(JSON.stringify(s.overlays)) : [];
+  state.layerOrder = Array.isArray(s.layerOrder) ? s.layerOrder.slice() : []; // 空なら輪の並びはsanitizeLayerOrderが補う
+  state.selectedOverlay = (s.selectedOverlay != null && s.selectedOverlay >= 0 && s.selectedOverlay < state.overlays.length) ? s.selectedOverlay : -1;
+  if (typeof updateOverlayRowsVisibility === 'function') updateOverlayRowsVisibility();
+  if (typeof renderOverlayList === 'function') renderOverlayList();
+  if (state.selectedOverlay >= 0) syncPanelFromSelectedOverlay();
+  render();
+}
+function doUndo() {
+  var s = hist.undo();
+  if (!s) { Studio.toast('取り消せません', { kind: 'error' }); return; }
+  applyHistState(s);
+}
+function doRedo() {
+  var s = hist.redo();
+  if (!s) { Studio.toast('やり直せません', { kind: 'error' }); return; }
+  applyHistState(s);
+}
+// 「読み込んだ直後に戻す」: 直近の貼り付け／置いて描く直後のスナップショットへ戻す
+var loadPointSnapshot = null;
+function markLoadPoint() {
+  loadPointSnapshot = {
+    loops: JSON.parse(JSON.stringify(state.loops)), activeLoop: state.activeLoop,
+    angleX: values.angleX, angleY: values.angleY, baseWidth: values.baseWidth,
+    viewRot: playState.P.slice(), selected: state.selected
+  };
+}
+function restoreLoadPoint() {
+  if (!loadPointSnapshot) { Studio.toast('戻れる読み込みがありません', { kind: 'error' }); return; }
+  applyHistState(loadPointSnapshot);
+  pushHistory();
+}
+/* --- ショートカット（§7・KEY-00: キーは Studio.keys に集約する。keydown を自前で書かない）。
+   このツールに既にある機能にだけ繋ぐ（HANDOFF.md に採否の記録あり）。
+   段6是正: 取り消す・やり直すのパネルボタンは撤去したが、⌘Z/⇧⌘Zのキーはそのまま残す。
+   色の対象切替・再生はどちらも上部バー（stageBar）に入口を統一した（KEY-04）。 --- */
+Studio.keys({
+  undo: doUndo, redo: doRedo,           // ⌘Z / ⇧⌘Z（パネルのボタンは撤去済み。キーだけ残す）
+  copy: doCopySVG,                      // ⌘C SVGをコピー（上部バーの「コピー」と同じ関数）
+  toggleColorTarget: function () {      // X 「塗り（帯）」→「塗り層」→「背景」（→レイヤー選択中は「レイヤーの色」）の順に編集対象を切り替え（上部バーのスウォッチと同じ）
+    var order = ['fill', 'fillLayer', 'bg'].concat(state.selectedOverlay >= 0 ? ['ovColor'] : []);
+    var idx = order.indexOf(sb.colors.getTarget());
+    sb.colors.setTarget(order[(idx + 1) % order.length]);
+  },
+  play: sb.togglePlay,                  // Space 短押し=再生/停止（上部バーの▶と同じ関数。A/B未記録時は既存の回転再生へ委譲）
+  del: deleteSelectedOverlay,           // Delete/Backspace＝選択中の「載せたもの」を削除（段7）
+  toggleAnchors: function () {          // ⌘H アンカーの表示を切り替え（パネル「アンカー表示」と同じ値）
+    values.set('showAnchors', !values.showAnchors); render();
+  },
+  escSteps: [
+    sb.closeDialog,                     // 開いている「映像」ダイアログを閉じる
+    function () {                       // 開いている「書き出し設定」を閉じる
+      if (!bar.el.classList.contains('opts-open')) return false;
+      bar.el.classList.remove('opts-open');
+      return true;
+    },
+    function () {                       // 選んでいる「載せたもの」を外す（段7）
+      if (state.selectedOverlay < 0) return false;
+      selectOverlay(-1);
+      return true;
+    },
+    function () {                       // 選んでいるアンカーを外す
+      if (state.selected < 0) return false;
+      selectPoint(-1);
+      return true;
+    }
+  ]
+});
+
+/* --- 段3C・段4是正: 最低限の再生（横・縦の回転速度＋奥行きの揺れ）。回転はplayState.P
+   （3x3行列）を毎フレーム画面軸で積む方式（Euler角の折り返しなし・段4是正）。奥行きの揺れは
+   表示だけの掛け目にしstate.anchorsは書き換えない（getDisplayAnchorsが再生中だけ
+   揺れを掛けたコピーを返す）。 --- */
+function getDisplayAnchors(anchorsArr) {
+  anchorsArr = anchorsArr || state.anchors;
+  if (!playState.active || Math.abs(playState.wobbleFactor - 1) < 1e-9) return anchorsArr;
+  var f = playState.wobbleFactor;
+  return anchorsArr.map(function (a) { return [a[0], a[1], a[2] * f, a[3]]; });
+}
+function playTick(now) {
+  if (!playState.active) return;
+  if (playState.lastT == null) playState.lastT = now;
+  var dt = (now - playState.lastT) / 1000;
+  playState.lastT = now;
+  playState.elapsed += dt;
+
+  // 段4是正: 縦・横とも角度スライダーは動かさず、画面軸の累積回転Pだけを更新する
+  // （P = Rx(縦の今フレーム分)·Ry(横の今フレーム分)·P。折り返し無し・連続回転）。
+  var dPitch = values.playSpeedX * dt, dYaw = values.playSpeedY * dt;
+  if (dPitch !== 0 || dYaw !== 0) {
+    var delta = mat3Mul(mat3RotX(dPitch), mat3RotY(dYaw));
+    playState.P = mat3Mul(delta, playState.P);
+  }
+
+  var a = (values.playWobble || 0) / 100;
+  var T = values.playPeriod || 3;
+  playState.wobbleFactor = 1 + a * Math.sin(2 * Math.PI * playState.elapsed / T);
+
+  render();
+  playState.raf = requestAnimationFrame(playTick);
+}
+function startPlayback() {
+  if (playState.active) return;
+  playState.active = true;
+  playState.lastT = null;
+  playState.elapsed = 0;
+  playState.raf = requestAnimationFrame(playTick);
+}
+function stopPlayback() {
+  if (!playState.active) return;
+  playState.active = false;
+  if (playState.raf) cancelAnimationFrame(playState.raf);
+  playState.wobbleFactor = 1;
+  render();
+  pushHistory();
+}
+function togglePlayback() {
+  if (playState.active) stopPlayback(); else startPlayback();
+}
+
+/* --- 段3D是正・段3E対応: 奥行きの一括操作（規則で作る／幅から作る／すべて0にする）。
+   取り消しは段3Aの履歴スタックへ統一（1段だけのundoSnapshotは廃止）。段3bでctrl→anchors。 --- */
+function afterBatchDepth() {
+  if (state.selected >= 0) syncPanelFromSelected();
+  render();
+  pushHistory();
+}
+function applyDepthRule() {
+  if (!state.anchors || state.anchors.length < 3) { Studio.toast('先にアンカーを置いてください', { kind: 'error', sticky: true }); return; }
+  var N = state.anchors.length;
+  var target = values.depthRuleTarget;
+  var anchorIdxs = [];
+  if (target === 'anchor' && state.isAnchor) {
+    for (var ii = 0; ii < N; ii++) if (state.isAnchor[ii]) anchorIdxs.push(ii);
+  }
+  if (anchorIdxs.length >= 2) {
+    // 段3E:「対象=Illustratorのアンカーだけ」。規則をアンカー由来の点にだけ順に当て、
+    // 補った点のzはその両隣のアンカーのzをsmoothstepでつなぐ。
+    var M = anchorIdxs.length, ts2 = [];
+    for (var jj = 0; jj < M; jj++) ts2.push(jj / M);
+    var zsAnchor = Profile.applyRule(values.depthRule, ts2, 0, false, { A: values.depthRuleA, B: values.depthRuleB, n: values.depthRuleN });
+    anchorIdxs.forEach(function (idx, jj2) { state.anchors[idx][2] = zsAnchor[jj2]; });
+    for (var p = 0; p < M; p++) {
+      var a0 = anchorIdxs[p], a1 = anchorIdxs[(p + 1) % M];
+      var z0 = state.anchors[a0][2], z1 = state.anchors[a1][2];
+      var span = ((a1 - a0) % N + N) % N; if (span === 0) span = N;
+      for (var q = 1; q < span; q++) {
+        var idxBetween = (a0 + q) % N;
+        var u = Outline.smoothstep(q / span);
+        state.anchors[idxBetween][2] = z0 + (z1 - z0) * u;
+      }
+    }
+  } else {
+    var ts = [];
+    for (var i = 0; i < N; i++) ts.push(i / N);
+    var zs = Profile.applyRule(values.depthRule, ts, 0, false, { A: values.depthRuleA, B: values.depthRuleB, n: values.depthRuleN });
+    state.anchors.forEach(function (a, i2) { a[2] = zs[i2]; });
+  }
+  afterBatchDepth();
+}
+function applyDepthFromWidth() {
+  if (!state.anchors || state.anchors.length < 3) { Studio.toast('先にアンカーを置いてください', { kind: 'error', sticky: true }); return; }
+  var ws = state.anchors.map(function (a) { return a[3]; });
+  var wMax = Math.max.apply(null, ws), wMin = Math.min.apply(null, ws);
+  if (wMax - wMin < 0.01) {
+    Studio.toast('幅がすべて同じなので奥行きは変わりません。選択中のアンカーの幅を変えてから使ってください', { kind: 'error' });
+    return;
+  }
+  var pct = Depth.linkedDepth(ws, !!values.depthInvert); // -50..50
+  var swing = values.depthSwing != null ? values.depthSwing : 100;
+  state.anchors.forEach(function (a, i) { a[2] = (pct[i] / 50) * swing; });
+  afterBatchDepth();
+}
+function resetAllDepthToZero() {
+  if (!state.anchors || !state.anchors.length) return;
+  var already = state.anchors.every(function (a) { return Math.abs(a[2]) < 1e-9; });
+  if (already) { Studio.toast('すでに0です', { kind: 'error' }); return; }
+  state.anchors.forEach(function (a) { a[2] = 0; });
+  afterBatchDepth();
+}
+function resetAngle() {
+  values.set('angleX', 0);
+  values.set('angleY', 0);
+  playState.P = mat3Identity(); // 段4是正: 再生で積んだ回転もここでリセットする
+  render();
+  pushHistory();
+}
+
+function findRowByLabel(labelText) {
+  var labels = document.querySelectorAll('#panel .sk-label');
+  for (var i = 0; i < labels.length; i++) if (labels[i].textContent === labelText) return labels[i].closest('.sk-row');
+  return null;
+}
+// 「幅」ラベルは基準幅の行とも被るため、選択中のアンカーグループ（sk-grp）内の行だけを拾う
+var selRows = [];
+(function () {
+  var groups = document.querySelectorAll('#panel .sk-grp');
+  for (var i = 0; i < groups.length; i++) {
+    var h = groups[i].querySelector('.sk-grp-ttl');
+    if (h && h.textContent === '選んだアンカー') { selRows = Array.prototype.slice.call(groups[i].querySelectorAll('.sk-row')); break; }
+  }
+  if (!selRows.length) selRows = [findRowByLabel('番号'), findRowByLabel('奥行き')];
+})();
+function updateSelectedRowsVisibility() {
+  var show = state.selected >= 0;
+  selRows.forEach(function (row) { if (row) { row.hidden = !show; row.style.display = show ? '' : 'none'; } });
+}
+updateSelectedRowsVisibility();
+
+/* --- 段8: 「レイヤー」パネル（下段。コーディネーター指示2026-09-26「下のパネルを使うことないので
+   そこに追加できないか」）。一覧＋貼る欄は#layerListCol（静的HTML）、選んだものの設定
+   （ovMode等）はStudio.panelが作った「載せるもの」グループの行をそのまま#layerSettingsColへ
+   移設して使う（既存の#pasteBoxと同じ「kitが作ったDOMへ後から要素を足す／動かす」やり方）。
+   「帯の後ろ」チェックは廃止し、一覧の「上へ／下へ」で並び順（layerOrder）を動かす方式にした。 --- */
+var OVERLAY_LINE_KEYS = ['ovPos', 'ovLen', 'ovWidth', 'ovOffset', 'ovFlip'];
+var OVERLAY_SPACE_KEYS = ['ovX', 'ovY', 'ovDepth', 'ovSize', 'ovRot'];
+var ovRowByKey = {};
+var layerHintEl = document.getElementById('layerHint');
+(function () {
+  var groups = document.querySelectorAll('#panel .sk-grp');
+  var ovGroupEl = null, rows = [];
+  for (var i = 0; i < groups.length; i++) {
+    var h = groups[i].querySelector('.sk-grp-ttl');
+    if (h && h.textContent === '載せるもの') { ovGroupEl = groups[i]; rows = Array.prototype.slice.call(groups[i].querySelectorAll('.sk-row')); break; }
+  }
+  function rowLabelText(row) {
+    // range行は.sk-label、select/checkbox行はクラス無しのspanにラベルが入る（studio-kit.jsの型差）
+    var el = row.querySelector('.sk-label') || row.querySelector('span');
+    return el ? el.textContent : '';
+  }
+  OVERLAY_PANEL_KEYS.forEach(function (k) {
+    var lbl = OVERLAY_LABELS[k];
+    var row = rows.filter(function (r) { return rowLabelText(r) === lbl; })[0];
+    if (row) ovRowByKey[k] = row;
+  });
+  var settingsCol = document.getElementById('layerSettingsCol');
+  if (settingsCol) {
+    OVERLAY_PANEL_KEYS.forEach(function (k) { if (ovRowByKey[k]) settingsCol.appendChild(ovRowByKey[k]); });
+  }
+  if (ovGroupEl && ovGroupEl.parentNode) ovGroupEl.parentNode.removeChild(ovGroupEl); // 見出しごと右パネルから消す
+})();
+function updateOverlayRowsVisibility() {
+  var show = state.selectedOverlay >= 0 && state.selectedOverlay < state.overlays.length;
+  var mode = show ? state.overlays[state.selectedOverlay].mode : 'line';
+  OVERLAY_PANEL_KEYS.forEach(function (k) {
+    var row = ovRowByKey[k];
+    if (!row) return;
+    var visible = show;
+    if (visible && OVERLAY_LINE_KEYS.indexOf(k) >= 0) visible = mode === 'line';
+    if (visible && OVERLAY_SPACE_KEYS.indexOf(k) >= 0) visible = mode === 'space';
+    row.hidden = !visible; row.style.display = visible ? '' : 'none';
+  });
+  if (layerHintEl) layerHintEl.hidden = show;
+  // 上部バーの「レイヤーの色」見本はレイヤーを選んでいる間だけ出す
+  var ovSw = document.querySelector('.cswatch[aria-label="レイヤーの色"]');
+  if (ovSw) ovSw.style.display = show ? '' : 'none';
+  if (sb.colors) {
+    if (show) sb.colors.set('ovColor', overlayDisplayColor(state.overlays[state.selectedOverlay]));
+    else if (sb.colors.getTarget() === 'ovColor') sb.colors.setTarget('fill');
+  }
+}
+updateOverlayRowsVisibility();
+/* 一覧の1行分の小さなサムネイル（(s,t)∈[0,1]²の正規化座標をそのままviewBoxに描く）。 */
+function buildThumbSvg(ov) {
+  var svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('class', 'ov-thumb');
+  svg.setAttribute('viewBox', '0 0 1 1');
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  svg.setAttribute('aria-hidden', 'true');
+  (ov.parts || []).forEach(function (part) {
+    if (part.kind !== 'poly' || !part.subpaths || !part.subpaths.length) return;
+    var d = part.subpaths.map(function (sp, si) {
+      if (!sp.length) return '';
+      var dd = 'M' + sp.map(function (p) { return p[0].toFixed(3) + ' ' + p[1].toFixed(3); }).join('L');
+      if (part.closed && part.closed[si]) dd += 'Z';
+      return dd;
+    }).filter(function (s) { return s; }).join(' ');
+    if (!d) return;
+    var p = document.createElementNS(SVGNS, 'path');
+    p.setAttribute('d', d);
+    p.setAttribute('fill', overlayPartPaint(ov, part).fill || 'none');
+    p.setAttribute('fill-rule', part.fillRule || 'nonzero');
+    svg.appendChild(p);
+  });
+  return svg;
+}
+/* 一覧の帯の行のサムネイル: その輪の正面の輪郭（回転前のx,y）を正方形のviewBoxに収めて描く。 */
+function buildLoopThumbSvg(loop) {
+  var svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('class', 'ov-thumb');
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('viewBox', '0 0 1 1');
+  if (!loop.anchors || loop.anchors.length < 3) return svg;
+  var pts = BSpline.evalClosed(deriveCtrl(loop.anchors), 6).pts3D;
+  var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  pts.forEach(function (q) {
+    if (q[0] < minX) minX = q[0]; if (q[0] > maxX) maxX = q[0];
+    if (q[1] < minY) minY = q[1]; if (q[1] > maxY) maxY = q[1];
+  });
+  var size = Math.max(maxX - minX, maxY - minY, 1), pad = size * 0.15, box = size + pad * 2;
+  var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  svg.setAttribute('viewBox', [cx - box / 2, cy - box / 2, box, box].map(function (v) { return v.toFixed(2); }).join(' '));
+  var path = document.createElementNS(SVGNS, 'path');
+  path.setAttribute('d', 'M' + pts.map(function (q) { return q[0].toFixed(1) + ' ' + q[1].toFixed(1); }).join('L') + 'Z');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', colorState.fill === 'none' ? '#999999' : colorState.fill);
+  path.setAttribute('stroke-width', (box * 0.1).toFixed(2));
+  svg.appendChild(path);
+  return svg;
+}
+function makeRowBtn(text, title, ariaLabel, onClick) {
+  var b = document.createElement('button');
+  b.type = 'button'; b.className = 'ov-row-btn'; b.textContent = text; b.title = title;
+  b.setAttribute('aria-label', ariaLabel);
+  b.addEventListener('click', function (e) { e.stopPropagation(); onClick(); });
+  return b;
+}
+/* 帯（輪）の行: 部品は「載せるもの」の行と同じ（サムネイル・表示・前へ・後ろへ・削除）。クリックで作業中の輪にする。 */
+function buildLoopRow(loop, idx) {
+  var name = '帯 ' + loop.id;
+  var row = document.createElement('div');
+  row.className = 'ov-row' + (idx === state.activeLoop && state.selectedOverlay < 0 ? ' sel' : '');
+  row.setAttribute('role', 'listitem');
+  row.dataset.loopId = String(loop.id);
+  row.appendChild(buildLoopThumbSvg(loop));
+  var label = document.createElement('span');
+  label.className = 'ov-row-label';
+  label.textContent = name; label.title = name;
+  row.appendChild(label);
+  var eyeBtn = makeRowBtn(loop.visible === false ? '○' : '●', loop.visible === false ? '表示する' : '隠す', name + 'の表示を切り替える', function () { toggleLoopVisible(idx); });
+  eyeBtn.setAttribute('aria-pressed', String(loop.visible !== false));
+  row.appendChild(eyeBtn);
+  row.appendChild(makeRowBtn('↑', '前へ', name + 'を前へ', function () { moveLayerToken('loop:' + loop.id, -1); }));
+  row.appendChild(makeRowBtn('↓', '後ろへ', name + 'を後ろへ', function () { moveLayerToken('loop:' + loop.id, 1); }));
+  if (state.loops.length > 1) row.appendChild(makeRowBtn('×', '削除', name + 'を削除', function () { deleteLoopAt(idx); }));
+  row.addEventListener('click', function () { setActiveLoop(idx); });
+  return row;
+}
+function renderOverlayList() {
+  sanitizeLayerOrder();
+  var list = document.getElementById('ovList');
+  if (!list) return;
+  list.innerHTML = '';
+  state.layerOrder.forEach(function (tok) {
+    if (tok.indexOf('loop:') === 0) {
+      var li = loopIndexById(+tok.slice(5));
+      if (li >= 0) list.appendChild(buildLoopRow(state.loops[li], li));
+      return;
+    }
+    var id = +tok, idx = overlayIndexById(id);
+    if (idx < 0) return;
+    var ov = state.overlays[idx];
+    var row = document.createElement('div');
+    row.className = 'ov-row' + (idx === state.selectedOverlay ? ' sel' : '');
+    row.setAttribute('role', 'listitem');
+    row.appendChild(buildThumbSvg(ov));
+    var label = document.createElement('span');
+    label.className = 'ov-row-label';
+    label.textContent = 'レイヤー ' + id; label.title = 'レイヤー ' + id;
+    row.appendChild(label);
+    var eyeBtn = document.createElement('button');
+    eyeBtn.type = 'button'; eyeBtn.className = 'ov-row-btn';
+    eyeBtn.textContent = ov.visible === false ? '○' : '●'; eyeBtn.title = ov.visible === false ? '表示する' : '隠す';
+    eyeBtn.setAttribute('aria-pressed', String(ov.visible !== false));
+    eyeBtn.setAttribute('aria-label', 'レイヤー ' + id + 'の表示を切り替える');
+    eyeBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleOverlayVisible(idx); });
+    row.appendChild(eyeBtn);
+    var upBtn = document.createElement('button');
+    upBtn.type = 'button'; upBtn.className = 'ov-row-btn'; upBtn.textContent = '↑'; upBtn.title = '前へ';
+    upBtn.setAttribute('aria-label', 'レイヤー ' + id + 'を前へ');
+    upBtn.addEventListener('click', function (e) { e.stopPropagation(); moveOverlayInOrder(id, -1); });
+    row.appendChild(upBtn);
+    var downBtn = document.createElement('button');
+    downBtn.type = 'button'; downBtn.className = 'ov-row-btn'; downBtn.textContent = '↓'; downBtn.title = '後ろへ';
+    downBtn.setAttribute('aria-label', 'レイヤー ' + id + 'を後ろへ');
+    downBtn.addEventListener('click', function (e) { e.stopPropagation(); moveOverlayInOrder(id, 1); });
+    row.appendChild(downBtn);
+    var delBtn = document.createElement('button');
+    delBtn.type = 'button'; delBtn.className = 'ov-row-btn'; delBtn.textContent = '×'; delBtn.title = '削除';
+    delBtn.setAttribute('aria-label', 'レイヤー ' + id + 'を削除');
+    delBtn.addEventListener('click', function (e) { e.stopPropagation(); deleteOverlayAt(idx); });
+    row.appendChild(delBtn);
+    row.addEventListener('click', function () { selectOverlay(idx); });
+    list.appendChild(row);
+  });
+}
+function selectOverlay(i) {
+  state.selectedOverlay = (i != null && i >= 0 && i < state.overlays.length) ? i : -1;
+  updateOverlayRowsVisibility();
+  renderOverlayList();
+  if (state.selectedOverlay >= 0) syncPanelFromSelectedOverlay();
+  render();
+}
+/* 作業中の輪の値を右パネルへ戻す（アンカーの数・置いた点の数・横から見た形の欄）。 */
+function syncPanelFromLoop() {
+  var l = activeLoopObj();
+  if (!l) return;
+  values.set('ctrlCount', l.ctrlCount);
+  if (values.ctrlPlacement === 'anchor') values.set('anchorPointCount', l.anchors.length);
+  sideSvgPasteEl.value = l.sourceTextSide || '';
+}
+/* 帯の行をクリック＝作業中の輪にする（「載せるもの」の選択は外す。アンカーの丸・側面・各設定はこの輪に効く）。 */
+function setActiveLoop(i) {
+  if (i < 0 || i >= state.loops.length) return;
+  state.activeLoop = i;
+  state.selected = -1;
+  state.selectedOverlay = -1;
+  syncPanelFromLoop();
+  updateSelectedRowsVisibility();
+  updateOverlayRowsVisibility();
+  renderOverlayList();
+  render();
+}
+function toggleLoopVisible(idx) {
+  var l = state.loops[idx];
+  if (!l) return;
+  l.visible = l.visible === false ? true : false;
+  renderOverlayList();
+  render();
+  pushHistory();
+}
+function deleteLoopAt(i) {
+  if (state.loops.length < 2 || i < 0 || i >= state.loops.length) return;
+  var activeId = activeLoopId();
+  state.loops.splice(i, 1);
+  var ni = loopIndexById(activeId);
+  state.activeLoop = ni >= 0 ? ni : Math.min(i, state.loops.length - 1);
+  if (ni < 0) { state.selected = -1; state.selectedOverlay = -1; }
+  syncPanelFromLoop();
+  updateSelectedRowsVisibility();
+  updateOverlayRowsVisibility();
+  renderOverlayList(); // 消えた輪の「載せるもの」はここで先頭の輪へ付け替わる
+  render();
+  pushHistory();
+}
+function toggleOverlayVisible(idx) {
+  var ov = state.overlays[idx];
+  if (!ov) return;
+  ov.visible = ov.visible === false ? true : false;
+  renderOverlayList();
+  render();
+  pushHistory();
+}
+function moveOverlayInOrder(id, dir) { moveLayerToken(String(id), dir); }
+function moveLayerToken(token, dir) {
+  sanitizeLayerOrder();
+  var idx = state.layerOrder.indexOf(token);
+  if (idx < 0) return;
+  var j = idx + dir;
+  if (j < 0 || j >= state.layerOrder.length) return;
+  var tmp = state.layerOrder[idx];
+  state.layerOrder[idx] = state.layerOrder[j];
+  state.layerOrder[j] = tmp;
+  renderOverlayList();
+  render();
+  pushHistory();
+}
+function deleteOverlayAt(i) {
+  if (i < 0 || i >= state.overlays.length) return;
+  state.overlays.splice(i, 1);
+  if (state.selectedOverlay === i) state.selectedOverlay = -1;
+  else if (state.selectedOverlay > i) state.selectedOverlay -= 1;
+  updateOverlayRowsVisibility();
+  renderOverlayList();
+  render();
+  pushHistory();
+}
+function deleteSelectedOverlay() {
+  if (state.selectedOverlay < 0) return false;
+  deleteOverlayAt(state.selectedOverlay);
+  return true;
+}
+function syncPanelFromSelectedOverlay() {
+  if (state.selectedOverlay < 0) return;
+  var ov = state.overlays[state.selectedOverlay];
+  OVERLAY_PANEL_KEYS.forEach(function (k) { values.set(k, ov[OVERLAY_FIELD_MAP[k]]); });
+}
+function applyPanelToSelectedOverlay(key) {
+  if (state.selectedOverlay < 0) return;
+  var ov = state.overlays[state.selectedOverlay];
+  var field = OVERLAY_FIELD_MAP[key];
+  if (!field) return;
+  ov[field] = values[key];
+  if (key === 'ovMode') updateOverlayRowsVisibility();
+}
+function loadOverlaySvg(text) {
+  if (!text || !text.trim()) { Studio.toast('SVGの文字列が空です', { kind: 'error' }); return false; }
+  if (state.overlays.length >= MAX_OVERLAYS) { Studio.toast('載せるものは' + MAX_OVERLAYS + '個までです', { kind: 'error', sticky: true }); return false; }
+  var res = Overlay.importSvg(text);
+  if (!res.ok) { Studio.toast(res.error || 'SVGを読めませんでした', { kind: 'error', sticky: true }); return false; }
+  var item = makeOverlayItem(res);
+  item.id = state.nextOverlayId++;
+  state.overlays.push(item);
+  state.layerOrder.unshift(String(item.id)); // 新しく載せたものは一覧の最前面
+  selectOverlay(state.overlays.length - 1);
+  pushHistory();
+  Studio.toast('レイヤー ' + item.id + ' を載せました');
+  return true;
+}
+document.getElementById('ovLoadBtn').addEventListener('click', function () {
+  loadOverlaySvg(document.getElementById('ovPaste').value);
+});
+/* 側面（奥行きドラッグ編集）は既定で隠す（ユーザーが使わないため）。見出しの「側面」で切り替える。 */
+var sideToggleBtn = document.getElementById('sideToggleBtn');
+var layerBodyEl = document.getElementById('layerBody');
+function setSideShown(v) {
+  if (layerBodyEl) layerBodyEl.hidden = v;
+  sideCanvas.hidden = !v;
+  if (sideToggleBtn) sideToggleBtn.setAttribute('aria-pressed', String(v));
+}
+if (sideToggleBtn) sideToggleBtn.addEventListener('click', function () { setSideShown(sideCanvas.hidden); });
+setSideShown(false);
+renderOverlayList(); // 起動直後から「帯」の行が一覧に見えるようにする（載せたものが0個でも一覧は空にしない）
+
+/* --- 取り込み ------------------------------------------------------------- */
+function setError(msg) { errBar.textContent = msg; }
+function clearError() { errBar.textContent = ''; }
+
+function scaleSeg(s, k) {
+  function p(pt) { return [pt[0] * k, pt[1] * k]; }
+  return s.type === 'L' ? { type: 'L', a: p(s.a), b: p(s.b) } : { type: 'C', p0: p(s.p0), p1: p(s.p1), p2: p(s.p2), p3: p(s.p3) };
+}
+
+function rebuildAnchorsFromSource() {
+  if (!state.sourceSegs) return;
+  var loopCtrl = (activeLoopObj() && activeLoopObj().ctrlCount) || values.ctrlCount; // アンカーの数は輪ごと
+  if (state.sourceSegsSide) {
+    // 正面=A・横=Bの2方向から作る（アンカーの置き方に関係なく、3D弧長で等間隔のアンカーの数だけ）
+    var dv = DualView.build(state.sourceSegs, state.sourceSegsSide, {});
+    if (dv.ok) {
+      var cnt = Math.max(8, loopCtrl | 0);
+      state.anchors = DualView.resampleClosed3D(dv.pts, cnt).map(function (p) { return [p[0], p[1], p[2], values.baseWidth]; });
+      state.isAnchor = null;
+      state.selected = -1;
+      updateSelectedRowsVisibility();
+      return;
+    }
+    setError(dv.error);
+    Studio.toast(dv.error, { kind: 'error', sticky: true });
+  }
+  if (values.ctrlPlacement === 'anchor') {
+    // 段3b: resamplePathByAnchorsの出力をそのままアンカーにする
+    // （＝Illustratorのアンカー座標に1e-6で一致するアンカーができる）。
+    var res = BSpline.resamplePathByAnchors(state.sourceSegs, values.baseWidth, 1.5);
+    state.anchors = res.pts;
+    state.isAnchor = res.isAnchor;
+    values.set('anchorPointCount', res.pts.length);
+  } else {
+    var count = Math.max(8, loopCtrl | 0);
+    state.anchors = BSpline.resamplePathEven(state.sourceSegs, count, values.baseWidth);
+    state.isAnchor = null;
+  }
+  state.selected = -1;
+  updateSelectedRowsVisibility();
+}
+
+/* 段3b: v1(ctrl)→v2(anchors+isAnchor)。ctrl→アンカーはBSpline.knotPoints（interpolateClosedの
+   逆写像・厳密）。isAnchorは記録されていないので全falseにする（v1にはこの区別が無かった）。 */
+function migrateV1toV2(env) {
+  var p = env.params || {};
+  var ctrl = p.ctrl || [];
+  var anchors = BSpline.knotPoints(ctrl);
+  env.params = {
+    anchors: anchors, isAnchor: anchors.map(function () { return false; }),
+    angleX: p.angleX, angleY: p.angleY, baseWidth: p.baseWidth,
+    viewRot: mat3Identity(), // 段4是正: v1には再生の累積回転が無いので単位行列
+    fill: p.fill, fillLayer: p.fillLayer, sourceSvg: p.sourceSvg
+  };
+  env.paramsVersion = 2;
+  return env;
+}
+/* 段8: v2(overlays[].behind)→v3(overlays[].id/visible + layerOrder)。「帯の後ろ」チェックの
+   代わりに並び順（layerOrder）で前後を決めるようにしたための移行（behind:trueは帯より後ろへ）。 */
+function migrateV2toV3(env) {
+  var p = env.params || {};
+  var oldOverlays = Array.isArray(p.overlays) ? p.overlays : [];
+  var frontIds = [], backIds = [], newOverlays = [];
+  oldOverlays.forEach(function (ov, i) {
+    var id = i + 1, item = {};
+    Object.keys(ov).forEach(function (k) { if (k !== 'behind') item[k] = ov[k]; });
+    item.id = id; item.visible = true;
+    newOverlays.push(item);
+    (ov.behind ? backIds : frontIds).push(String(id));
+  });
+  p.overlays = newOverlays;
+  p.layerOrder = frontIds.slice().reverse().concat(['band'], backIds.slice().reverse());
+  env.params = p;
+  env.paramsVersion = 3;
+  return env;
+}
+/* 複数の輪: v3(params.anchors等)→v4(params.loops)。1本だけの輪（id 1）にして、layerOrderの'band'は
+   'loop:1'へ、載せるもののloopIdは1にする。 */
+function migrateV3toV4(env) {
+  var p = env.params || {};
+  var anchors = Array.isArray(p.anchors) ? p.anchors : [];
+  p.loops = [{
+    id: 1, anchors: anchors, isAnchor: Array.isArray(p.isAnchor) ? p.isAnchor : null,
+    sourceSvg: p.sourceSvg || '', sourceSvgSide: p.sourceSvgSide || '',
+    ctrlCount: clampCtrlCount(anchors.length), visible: true
+  }];
+  p.activeLoop = 0;
+  delete p.anchors; delete p.isAnchor; delete p.sourceSvg; delete p.sourceSvgSide;
+  if (Array.isArray(p.layerOrder)) p.layerOrder = p.layerOrder.map(function (t) { return t === 'band' ? 'loop:1' : t; });
+  if (Array.isArray(p.overlays)) p.overlays.forEach(function (ov) { ov.loopId = 1; });
+  env.params = p;
+  env.paramsVersion = 4;
+  return env;
+}
+/* 段3B/3b: 封筒 tool===TOOL（自分自身の書き出しSVG）が来たら Studio.prepareRestore で復元する。 */
+var RESTORE_CONTRACT = {
+  tool: TOOL, toolVersion: TOOL_VERSION, paramsVersion: PARAMS_VERSION,
+  migrate: function (env) {
+    if (env.paramsVersion === 1) env = migrateV1toV2(env);
+    if (env.paramsVersion === 2) env = migrateV2toV3(env);
+    if (env.paramsVersion === 3) env = migrateV3toV4(env);
+    return env;
+  },
+  validate: function (params) {
+    if (!params || !Array.isArray(params.loops) || params.loops.length < 1) return 'loopsが必要です（1本以上の配列）';
+    for (var li = 0; li < params.loops.length; li++) {
+      var lp = params.loops[li];
+      if (!lp || !Array.isArray(lp.anchors) || lp.anchors.length < 3) return 'anchorsが必要です（3点以上の配列）';
+      for (var i = 0; i < lp.anchors.length; i++) {
+        var a = lp.anchors[i];
+        if (!Array.isArray(a) || a.length < 4) return 'anchorsの各点は[x,y,z,w]の配列である必要があります';
+        for (var d = 0; d < 4; d++) if (typeof a[d] !== 'number' || !isFinite(a[d])) return 'anchorsに数値でない値があります';
+      }
+    }
+    return true;
+  }
+};
+function loadOwnEnvelope(env, text) {
+  var next;
+  try { next = Studio.prepareRestore(env, RESTORE_CONTRACT); }
+  catch (e) { Studio.toast(e.message || '復元できませんでした', { kind: 'error', sticky: true }); return false; }
+  var p = next.params;
+  var usedIds = {}, nextFree = 1;
+  p.loops.forEach(function (l) { if (typeof l.id === 'number' && l.id >= nextFree) nextFree = l.id + 1; });
+  state.loops = p.loops.map(function (l) { // アンカーはparams.loopsから戻す（作り直さない）。元の形・横から見た形は文字列から戻す
+    var id = (typeof l.id === 'number' && l.id > 0 && !usedIds[l.id]) ? l.id : nextFree++;
+    usedIds[id] = true;
+    var loop = newLoop(id);
+    loop.anchors = l.anchors.map(function (a) { return a.slice(); });
+    loop.isAnchor = Array.isArray(l.isAnchor) ? l.isAnchor.slice() : null;
+    loop.sourceText = l.sourceSvg || '';
+    loop.sourceSegs = segsFromSourceText(loop.sourceText);
+    if (!loop.sourceSegs) { loop.sourceSegs = segsFromAnchors(loop.anchors); loop.sourceText = loop.sourceSegs ? synthLoopSvg(loop.sourceSegs) : ''; }
+    loop.sourceTextSide = l.sourceSvgSide || '';
+    var rs = loop.sourceTextSide ? parseSideSegs(loop.sourceTextSide) : null;
+    if (rs && rs.segs) loop.sourceSegsSide = rs.segs; else loop.sourceTextSide = '';
+    loop.ctrlCount = clampCtrlCount(typeof l.ctrlCount === 'number' ? l.ctrlCount : l.anchors.length);
+    loop.visible = l.visible !== false;
+    return loop;
+  });
+  state.nextLoopId = nextIdFromOverlays(state.loops);
+  state.activeLoop = (p.activeLoop >= 0 && p.activeLoop < state.loops.length) ? (p.activeLoop | 0) : 0;
+  state.sourceOverlaySegs = null;
+  state.selected = -1;
+  values.set('angleX', p.angleX || 0);
+  values.set('angleY', p.angleY || 0);
+  values.set('baseWidth', p.baseWidth || 6);
+  playState.P = Array.isArray(p.viewRot) && p.viewRot.length === 9 ? p.viewRot.slice() : mat3Identity();
+  if (p.fill) colorState.fill = p.fill;
+  if (p.fillLayer) colorState.fillLayer = p.fillLayer;
+  colorState.bg = p.bg || '#FFFFFF'; // 段5: 旧SVG（bgを持たない書き出し）は白背景として復元する
+  if (sb && sb.colors) { sb.colors.set('fill', colorState.fill); sb.colors.set('fillLayer', colorState.fillLayer); sb.colors.set('bg', colorState.bg); }
+  restoreOverlaysFromParams(p.overlays, p.layerOrder); // 段6/段8: 旧SVG（overlays/layerOrderを持たない書き出し）は空・既定順にする
+  syncPanelFromLoop();
+  updateSelectedRowsVisibility();
+  clearError();
+  render();
+  markLoadPoint();
+  pushHistory();
+  Studio.toast('設定を戻しました（' + (next.date || '日時不明') + '）');
+  return true;
+}
+
+function loadSourceSvg(text) {
+  // 段2C/段3B: 貼った文字列に封筒<metadata id="studio">があれば、まず出自を見る。
+  // tool===TOOL（自分の書き出し）なら復元、tool==='stroke-swell'なら線幅の抑揚の
+  // 書き出しSVGとして読む（どちらでもなければ従来の閉じたパスの貼り付けへ）。
+  var hasEnvelopeTag = /<metadata\b[^>]*\bid=["']studio["']/.test(text);
+  if (hasEnvelopeTag) {
+    var envResult = Studio.inspectEnvelope(text);
+    if (envResult.status !== 'ok') {
+      var msg = envResult.message || 'SVGを読めませんでした';
+      setError(msg);
+      Studio.toast(msg, { kind: 'error', sticky: true });
+      return false;
+    }
+    if (envResult.env.tool === TOOL) return loadOwnEnvelope(envResult.env, text);
+    if (envResult.env.tool === 'stroke-swell') return loadSwellEnvelope(envResult.env, text);
+    // 出自はあるが別ツールのSVG: 従来の閉じたパス読み込みへフォールバックする
+  }
+  var shapes = null;
+  try { shapes = window.SvgIn.parse(text); } catch (e) { shapes = null; }
+  if (!shapes || !shapes.length) { setError('SVGを読めませんでした（対応する図形が見つからないか、SVGの形式が不正です）'); return false; }
+  // 閉じた形は全部、順に輪にする（既存の輪は全部置き換える。位置関係はSvgInの正規化のまま）
+  var closedShapes = shapes.filter(function (sh) { return sh.closed && sh.segs && sh.segs.length; });
+  if (!closedShapes.length) { setError('閉じたパスが見つかりません'); return false; }
+  var multi = closedShapes.length > 1;
+  var newLoops = closedShapes.map(function (sh) {
+    var loop = newLoop(0);
+    loop.sourceSegs = sh.segs.map(function (sg) { return scaleSeg(sg, PASTE_SCALE); });
+    loop.sourceText = multi ? synthLoopSvg(loop.sourceSegs) : text; // 複数なら輪ごとに1本ぶんのSVG（封筒に同梱）
+    loop.ctrlCount = clampCtrlCount(Math.max(24, loop.sourceSegs.length * 4));
+    return loop;
+  });
+  state.sourceOverlaySegs = null;
+  setLoops(newLoops, true);
+  clearError();
+  render();
+  markLoadPoint();
+  pushHistory();
+  return true;
+}
+/* 複数の輪を貼った時の、輪1本ぶんのSVG文字列。世界座標のままの path を持つので、封筒から戻す時に
+   SvgInの正規化（全図形をまとめて[-1,1]へ）を通さずそのまま sourceSegs に戻せる。 */
+var SYNTH_LOOP_MARK = 'data-spline3d-loop';
+function synthLoopSvg(segs) {
+  function f(pt) { return (Math.round(pt[0] * 1e4) / 1e4) + ' ' + (Math.round(pt[1] * 1e4) / 1e4); }
+  var d = 'M' + f(segs[0].type === 'L' ? segs[0].a : segs[0].p0);
+  segs.forEach(function (sg) { d += sg.type === 'L' ? 'L' + f(sg.b) : 'C' + f(sg.p1) + ' ' + f(sg.p2) + ' ' + f(sg.p3); });
+  return '<svg xmlns="http://www.w3.org/2000/svg" ' + SYNTH_LOOP_MARK + '="1" viewBox="-300 -300 600 600"><path d="' + d + 'Z" fill="none" stroke="#000000"/></svg>';
+}
+/* アンカーだけの輪（元の形を持たない＝初期の形や手で置いた輪）から、正面の閉じた曲線（x,y）を
+   セグメントにする。自分の書き出しSVGを貼った時に「元の形」として使えるようにする（2026-10-13）。 */
+function segsFromAnchors(anchors) {
+  if (!anchors || anchors.length < 3) return null;
+  try { return BSpline.toBezierClosed(BSpline.interpolateClosed(anchors)); } catch (e) { return null; }
+}
+/* 自分の書き出しSVG（封筒 tool===TOOL）なら、作業中の輪の元の形（無ければアンカーの曲線）を返す。違えば null */
+function segsFromOwnEnvelope(text) {
+  if (!/<metadata\b[^>]*\bid=["']studio["']/.test(text)) return null;
+  var ins = Studio.inspectEnvelope(text);
+  if (ins.status !== 'ok' || ins.env.tool !== TOOL) return null;
+  var next; try { next = Studio.prepareRestore(ins.env, RESTORE_CONTRACT); } catch (e) { return null; }
+  var p = next.params, loops = p.loops || [];
+  if (!loops.length) return null;
+  var l = loops[(p.activeLoop >= 0 && p.activeLoop < loops.length) ? (p.activeLoop | 0) : 0];
+  return segsFromSourceText(l.sourceSvg || '') || segsFromAnchors(l.anchors);
+}
+/* 封筒の復元用: 輪の元の形の文字列からsourceSegsを戻す（線幅の抑揚のSVGは元々sourceSegsを持たない）。 */
+function segsFromSourceText(text) {
+  if (!text) return null;
+  if (text.indexOf(SYNTH_LOOP_MARK) >= 0) {
+    var m = /\sd="([^"]*)"/.exec(text);
+    if (!m) return null;
+    try { var r = BSpline.parsePathD(m[1]); return r.segs && r.segs.length ? r.segs : null; } catch (e) { return null; }
+  }
+  if (/<metadata\b[^>]*\bid=["']studio["']/.test(text)) {
+    var ins = Studio.inspectEnvelope(text);
+    if (ins.status === 'ok' && ins.env.tool === 'stroke-swell') return null;
+  }
+  var shapes = null;
+  try { shapes = window.SvgIn.parse(text); } catch (e2) { shapes = null; }
+  if (!shapes) return null;
+  for (var i = 0; i < shapes.length; i++) {
+    if (shapes[i].closed) return shapes[i].segs.map(function (sg) { return scaleSeg(sg, PASTE_SCALE); });
+  }
+  return null;
+}
+/* 輪を丸ごと置き換える。idは1から振り直す。layerOrderは今の輪の位置へ新しい輪を入れる（載せるものの並びは保つ）。
+   rebuild=trueなら各輪を自分のsourceSegsからアンカーにする。作業中の輪は先頭。 */
+function setLoops(list, rebuild) {
+  list.forEach(function (l, i) { l.id = i + 1; });
+  var pos = -1, order = [];
+  (state.layerOrder || []).forEach(function (t) {
+    if (t.indexOf('loop:') === 0 || t === 'band') { if (pos < 0) pos = order.length; return; }
+    order.push(t);
+  });
+  if (pos < 0) pos = 0;
+  var toks = list.map(function (l) { return 'loop:' + l.id; });
+  state.layerOrder = order.slice(0, pos).concat(toks, order.slice(pos));
+  state.loops = list;
+  state.nextLoopId = list.length + 1;
+  state.activeLoop = 0;
+  state.selected = -1;
+  if (rebuild) list.forEach(function (l, i) { if (l.sourceSegs) withLoop(i, rebuildAnchorsFromSource); });
+  state.activeLoop = 0;
+  syncPanelFromLoop();
+  updateSelectedRowsVisibility();
+  renderOverlayList();
+}
+
+/* 横から見た形（B）: 最初の閉じた形を、Aと同じスケールでsourceSegsSideにする。
+   textからの取り込みだけを行い、アンカーの作り直しは呼び出し側が行う。成功で true */
+function parseSideSegs(text) {
+  var own = segsFromOwnEnvelope(text);
+  if (own) return { segs: own };
+  var shapes = null;
+  try { shapes = window.SvgIn.parse(text); } catch (e) { shapes = null; }
+  if (!shapes || !shapes.length) return { error: '横から見た形のSVGを読めませんでした（対応する図形が見つからないか、SVGの形式が不正です）' };
+  var closed = null;
+  for (var i = 0; i < shapes.length; i++) { if (shapes[i].closed) { closed = shapes[i]; break; } }
+  if (!closed) return { error: '横から見た形に閉じたパスが見つかりません' };
+  return { segs: closed.segs.map(function (s) { return scaleSeg(s, PASTE_SCALE); }) };
+}
+function loadSideSvg(text) {
+  function fail(msg) { setError(msg); Studio.toast(msg, { kind: 'error', sticky: true }); return false; }
+  if (!state.sourceSegs) { state.sourceSegs = segsFromAnchors(state.anchors); if (state.sourceSegs) state.sourceText = synthLoopSvg(state.sourceSegs); }
+  if (!state.sourceSegs) return fail('先に「SVGを貼る」で正面の形を読み込んでください');
+  var r = parseSideSegs(text);
+  if (r.error) return fail(r.error);
+  var prevSegs = state.sourceSegsSide, prevText = state.sourceTextSide;
+  state.sourceSegsSide = r.segs;
+  state.sourceTextSide = text;
+  var dv = DualView.build(state.sourceSegs, state.sourceSegsSide, {});
+  if (!dv.ok) { state.sourceSegsSide = prevSegs; state.sourceTextSide = prevText; return fail(dv.error); }
+  var sl = activeLoopObj();
+  if (sl && sl.ctrlCount < 120) sl.ctrlCount = 160; // 2方向で作る時のアンカーの数（作業中の輪だけ）
+  syncPanelFromLoop();
+  rebuildAnchorsFromSource();
+  clearError();
+  render();
+  markLoadPoint();
+  pushHistory();
+  return true;
+}
+function removeSideSvg() {
+  state.sourceSegsSide = null;
+  state.sourceTextSide = '';
+  sideSvgPasteEl.value = '';
+  rebuildAnchorsFromSource(); // 従来の作り直し（z=0）
+  clearError();
+  render();
+  pushHistory();
+}
+
+/* 段2C: 線幅の抑揚の書き出しSVGの封筒params を、sampleSwell(bspline.js/swell_import.js)で
+   (x,y,z,w)点列にし、それをそのままアンカーにする（段3b）。アンカーの数の既定は
+   max(24, params.points.length×4)。角度(angleX/angleY)は右パネルへそのまま入れる。 */
+function loadSwellEnvelope(env, text) {
+  var params = env.params || {};
+  var overlaySegs = null;
+  try { overlaySegs = BSpline.parsePathD(params.basePath || '').segs; } catch (e) { overlaySegs = null; }
+  var count = Math.max(24, ((params.points && params.points.length) || 0) * 4);
+  var deps = { Outline: window.Outline, Profile: window.Profile, Depth: window.Depth, parseD: function (d) { return BSpline.parsePathD(d); } };
+  var anchors = null;
+  try { anchors = SwellImport.sampleSwell(params, deps, count); } catch (e) { anchors = null; }
+  var bad = !anchors || anchors.length < 3 || anchors.some(function (a) { return !a || a.some(function (v) { return !isFinite(v); }); });
+  if (bad) {
+    var msg2 = '線幅の抑揚のSVGを読めませんでした';
+    setError(msg2);
+    Studio.toast(msg2, { kind: 'error', sticky: true });
+    return false;
+  }
+  // 輪1本に置き換える。sourceSegsは持たない（従来のresamplePathEven経路は使わない・sampleSwellが直接アンカーを作る）
+  var swellLoop = newLoop(1);
+  swellLoop.anchors = anchors;
+  swellLoop.sourceText = text;
+  swellLoop.ctrlCount = clampCtrlCount(count);
+  state.sourceOverlaySegs = overlaySegs;
+  setLoops([swellLoop], false);
+  if (params.angleX != null) values.set('angleX', params.angleX);
+  if (params.angleY != null) values.set('angleY', params.angleY);
+  clearError();
+  render();
+  markLoadPoint();
+  pushHistory();
+  return true;
+}
+
+/* 段2C: 元の線（params.basePathを平坦化した2D点列）を、現在の角度で回転投影した
+   閉じたポリラインのd文字列にする（重ね描き専用。書き出しには入れない）。 */
+function buildOverlayD() {
+  var segs = state.sourceOverlaySegs;
+  if (!segs || !segs.length) return '';
+  var ex = Outline.flattenClosedPathEx(segs, 0.25, 4);
+  if (!ex.pts || ex.pts.length < 2) return '';
+  var pts3D = ex.pts.map(function (p) { return [p[0], p[1], 0]; });
+  var rotated = applyViewRot(Depth.rotateProject(pts3D, values.angleX, values.angleY));
+  var d = '';
+  rotated.forEach(function (r, i) { d += (i === 0 ? 'M' : 'L') + r.x.toFixed(2) + ' ' + r.y.toFixed(2); });
+  return d + 'Z';
+}
+
+/* --- アンカーを置いて描く（INIT-01: 版面（短辺 2*HALF）の60%の直径＝半径 0.3*2*HALF の円周上に8点） -------------------------- */
+function placeDefaultCircle() {
+  var n = 8, r = 0.6 * HALF, pts = [];
+  for (var i = 0; i < n; i++) {
+    var ang = (i / n) * Math.PI * 2;
+    pts.push([r * Math.cos(ang), r * Math.sin(ang), 0, values.baseWidth]);
+  }
+  var circle = newLoop(1); // 輪1本に置き換える
+  circle.anchors = pts;
+  circle.ctrlCount = clampCtrlCount(values.ctrlCount || 16);
+  state.sourceOverlaySegs = null;
+  setLoops([circle], false);
+  clearError();
+  render();
+  markLoadPoint();
+  pushHistory();
+}
+
+function applyBaseWidthToAll() { // 幅は全部の輪に効く
+  state.loops.forEach(function (l) { l.anchors.forEach(function (a) { a[3] = values.baseWidth; }); });
+}
+
+/* --- 選択中のアンカーをパネルへ反映・パネルから反映 --------------------------- */
+function applyPanelToSelected(key) {
+  if (state.selected < 0) return;
+  var a = state.anchors[state.selected];
+  if (key === 'ptZ') a[2] = values.ptZ;
+  if (key === 'ptW') a[3] = values.ptW;
+  render();
+}
+function syncPanelFromSelected() {
+  if (state.selected < 0) return;
+  var a = state.anchors[state.selected];
+  values.set('ptIndex', state.selected);
+  values.set('ptZ', Math.round(a[2]));
+  values.set('ptW', Math.round(a[3]));
+}
+function selectPoint(i) {
+  state.selected = i;
+  updateSelectedRowsVisibility();
+  if (i >= 0) syncPanelFromSelected();
+  render();
+}
+
+/* --- 描画パイプライン（段3b改訂）------------------------------------------
+   anchors → deriveCtrl(anchors)（=BSpline.interpolateClosed。使うたびに導出）→
+   evalClosed(ctrl,64) の一様u点列 → Depth.rotateProject → proj2D と zArr →
+   Outline.normalsFor(proj2D) → left/right = 中心 ± 法線×(w/2)。
+   3層: g#fill（投影後の中心線の厳密ベジェ=toBezierClosed(rotateProject(ctrl))・evenodd）
+   ／g#band（Depth.splitBandPieces(n, zArr, 64) のbyDepth順にpieceD）
+   ／g#center（同じ厳密ベジェ・stroke #999 0.5）。
+   正面・側面に描く丸は「アンカー」(anchorsNow)そのもの（曲線上の点）。 --------- */
+/* --- インスタONで絵を版面に収める（006 §0 版面・Studio.fitInto）。--------------
+   「回しても変わらない外接」= 原点からの3D距離の最大（アンカー＋帯の半幅・「載せたもの」・
+   奥行きの揺れの最大倍率を含む）を半径とする円。回転（angleX/angleY・再生の累積回転）は
+   投影のあとの話なので、この半径には効かない＝回しても拡縮は揺れない。
+   AとBが記録済みならその両方の半径の大きい方を使う（A/B再生・映像書き出し中に揺れないため）。
+   ドラッグ中（isDragging）は掴んだ点が逃げないよう、直前の値を使い回して再計算しない。 --- */
+function radiusFromParamsSnapshot(p) {
+  var bw = (p && p.baseWidth != null) ? p.baseWidth : values.baseWidth;
+  var wobblePct = (p && p.playWobble != null) ? p.playWobble : values.playWobble;
+  var fMax = 1 + Math.max(0, (wobblePct || 0) / 100);
+  var R = 0;
+  state.loops.forEach(function (loop) { // 全部の輪の最大
+    (loop.anchors || []).forEach(function (a) {
+      var z = a[2] * fMax;
+      var d = Math.sqrt(a[0] * a[0] + a[1] * a[1] + z * z);
+      var hw = Math.max((a[3] != null ? a[3] : bw) / 2, bw / 2);
+      if (d + hw > R) R = d + hw;
+    });
+  });
+  (state.overlays || []).forEach(function (ov, idx) {
+    if (ov.visible === false) return;
+    function pv(key, fallback) { var k = 'ov' + idx + '_' + key; return (p && p[k] != null) ? p[k] : fallback; }
+    if (ov.mode === 'space') {
+      var x = pv('x', ov.x), y = pv('y', ov.y), depth = pv('depth', ov.depth), size = pv('size', ov.size);
+      var reach = Math.sqrt(x * x + y * y + (depth * fMax) * (depth * fMax)) + size / 2;
+      if (reach > R) R = reach;
+    } else {
+      var offset = pv('offset', ov.offset), width = pv('width', ov.width);
+      var extra = R + Math.abs(offset || 0) + (width || 1) * 4; // 帯の外接から追加で張り出す分の安全側の見積もり
+      if (extra > R) R = extra;
+    }
+  });
+  return Math.max(R, HALF * 0.2);
+}
+function artSafeRadius3D() {
+  var ab = sb.getAB();
+  if (ab.A && ab.B) return Math.max(radiusFromParamsSnapshot(ab.A), radiusFromParamsSnapshot(ab.B));
+  return radiusFromParamsSnapshot(null);
+}
+var cachedFit = null, isDragging = false;
+function computeFitTransform() {
+  if (document.body.classList.contains('insta-off')) return null;
+  if (isDragging && cachedFit) return cachedFit;
+  var R = artSafeRadius3D();
+  var fb = frameBox || { x: -HALF, y: -HALF, w: 2 * HALF, h: 2 * HALF };
+  cachedFit = Studio.fitInto({ x: -R, y: -R, w: 2 * R, h: 2 * R }, { x: fb.x, y: fb.y, w: fb.w, h: fb.h }, 0.08);
+  return cachedFit;
+}
+
+function computeProjection(loop) { // loop省略＝作業中の輪
+  var anchorsNow = getDisplayAnchors(loop ? loop.anchors : state.anchors); // 段3C: 再生中は奥行きの揺れを掛けた表示専用アンカー
+  var ctrlNow = deriveCtrl(anchorsNow); // 段3b: Bスプライン制御点は毎回ここで導出（状態に持たない）
+  var dense = BSpline.evalClosed(ctrlNow, SPP);
+  // 段4是正: まずDepth.rotateProjectで角度スライダーの向きを作り、その結果に
+  // playState.P（再生で積んだ画面軸の累積回転）を掛けて最終の(x,y,z)にする。
+  var rotated = applyViewRot(Depth.rotateProject(dense.pts3D, values.angleX, values.angleY));
+  var proj2D = rotated.map(function (r) { return [r.x, r.y]; });
+  var zArr = rotated.map(function (r) { return r.z; });
+  var normals = Outline.normalsFor(proj2D);
+  var left = [], right = [];
+  for (var i = 0; i < proj2D.length; i++) {
+    var hw = dense.w[i] / 2;
+    left.push([proj2D[i][0] + normals[i][0] * hw, proj2D[i][1] + normals[i][1] * hw]);
+    right.push([proj2D[i][0] - normals[i][0] * hw, proj2D[i][1] - normals[i][1] * hw]);
+  }
+  var ctrlXYZ = ctrlNow.map(function (c) { return [c[0], c[1], c[2]]; });
+  var ctrlRotated2D = applyViewRot(Depth.rotateProject(ctrlXYZ, values.angleX, values.angleY)).map(function (r) { return [r.x, r.y]; });
+  var centerD = Outline.segsToClosedD(BSpline.toBezierClosed(ctrlRotated2D));
+  var anchorsXYZ = anchorsNow.map(function (a) { return [a[0], a[1], a[2]]; });
+  var anchorsRotated = applyViewRot(Depth.rotateProject(anchorsXYZ, values.angleX, values.angleY)).map(function (r) { return [r.x, r.y]; });
+  return { proj2D: proj2D, z: zArr, left: left, right: right, centerD: centerD, dense: dense, anchorsRotated: anchorsRotated, anchorsNow: anchorsNow };
+}
+/* 輪ごとの投影（anchorsが3点以上の輪だけ）。キーは輪のid。 */
+function computeAllProjections() {
+  var out = {};
+  state.loops.forEach(function (loop) { if (loop.anchors && loop.anchors.length >= 3) out[loop.id] = computeProjection(loop); });
+  return out;
+}
+/* 輪のレイヤーid（fill/band/center）の末尾: 1本目（先頭の輪）は今のまま・2本目以降は輪のidを付ける（fill2 / band2 / center2 / band2/<k>） */
+function loopIdSuffix(loop) { return state.loops.indexOf(loop) <= 0 ? '' : String(loop.id); }
+
+/* 投影後の帯を小片に分けたSVG片のd文字列（開いた短冊。直線でつなぐ） */
+function pieceD(left, right, idxs) {
+  function f(p) { return p[0].toFixed(2) + ' ' + p[1].toFixed(2); }
+  var d = 'M' + f(left[idxs[0]]);
+  for (var i = 1; i < idxs.length; i++) d += 'L' + f(left[idxs[i]]);
+  for (var j = idxs.length - 1; j >= 0; j--) d += 'L' + f(right[idxs[j]]);
+  return d + 'Z';
+}
+function round2(v) { return Math.round(v * 100) / 100; }
+/* 段4: pieceDと同じ頂点順（left順→right逆順・閉多角形）を動きの書き出しのunits[].pts用に作る。 */
+function piecePts(left, right, idxs) {
+  var pts = idxs.map(function (i) { return [round2(left[i][0]), round2(left[i][1])]; });
+  for (var j = idxs.length - 1; j >= 0; j--) pts.push([round2(right[idxs[j]][0]), round2(right[idxs[j]][1])]);
+  return pts;
+}
+
+/* --- 段4是正・段8是正: 「載せるもの」の描画（overlay.js の純関数へ、正面2D座標だけを渡す）。
+   沿わせる置き方はproj.proj2D/left/right（帯より前を描く既存の投影結果）をそのまま使うので、
+   帯がねじれれば絵も一緒に曲がる。空間に置く置き方はvalues.angleX/angleY・playState.P・
+   奥行きの揺れ（playState.wobbleFactor）を立体本体と同じ式で掛ける。
+   段8: 前後は項目ごとのチェックボックスではなく、レイヤー一覧の並び順（state.layerOrder）で
+   決める（buildOrderedLayersが唯一の組み立て口。render()・buildExportSVGの両方がここを通る）。 */
+function overlayScaleFactor(ov) {
+  var longSide = Math.max(ov.bboxW, ov.bboxH) || 1;
+  return ov.mode === 'space' ? (ov.size / longSide) : ((values.baseWidth || 6) * ov.width / longSide);
+}
+/* 段9: partは subpaths（複数サブパス。穴を含む）を持つ。写像を全サブパスへ同じ式で掛け、
+   1つの<path>にM…Z M…Zで連結して書く（穴のサブパスを別要素に分けない＝黒く塗り潰さない）。 */
+function buildOverlayGroup(ov, idx, proj, ax, ay, viewP, wobbleF) {
+  var gi = document.createElementNS(SVGNS, 'g');
+  gi.dataset.ovIdx = String(idx);
+  var scaleFactor = overlayScaleFactor(ov);
+  var spaceOpts = { x: ov.x, y: ov.y, depth: ov.depth * wobbleF, size: ov.size, rotation: ov.rot, aspectW: ov.bboxW, aspectH: ov.bboxH };
+  var lineOpts = { pos: ov.pos, len: ov.len, widthMult: ov.width, offsetPx: ov.offset, flip: ov.flip };
+  ov.parts.forEach(function (part) {
+    if (part.kind === 'text') {
+      var pos = (ov.mode === 'line')
+        ? Overlay.mapAlongLine([[part.s, part.t]], proj.proj2D, proj.left, proj.right, lineOpts)[0]
+        : Overlay.projectSpaceItem([[part.s, part.t]], spaceOpts, ax, ay, viewP)[0];
+      var t = document.createElementNS(SVGNS, 'text');
+      t.setAttribute('x', pos[0].toFixed(2)); t.setAttribute('y', pos[1].toFixed(2));
+      t.setAttribute('font-size', Math.max(1, (part.fontSize || 16) * scaleFactor));
+      t.setAttribute('fill', ov.color == null ? (part.fill || '#000000') : (ov.color === 'none' ? 'none' : ov.color));
+      t.textContent = part.text;
+      gi.appendChild(t);
+      return;
+    }
+    var d = (part.subpaths || []).map(function (pts, si) {
+      var closed = !!(part.closed && part.closed[si]);
+      var mapped = (ov.mode === 'line')
+        ? Overlay.mapAlongLine(Overlay.densify(pts, 0.005, closed), proj.proj2D, proj.left, proj.right, lineOpts)
+        : Overlay.projectSpaceItem(pts, spaceOpts, ax, ay, viewP);
+      if (!mapped.length) return '';
+      var dd = 'M' + mapped.map(function (pt) { return pt[0].toFixed(2) + ' ' + pt[1].toFixed(2); }).join('L');
+      if (closed) dd += 'Z';
+      return dd;
+    }).filter(function (s) { return s; }).join(' ');
+    if (!d) return;
+    var p = document.createElementNS(SVGNS, 'path');
+    p.setAttribute('d', d);
+    var paint = overlayPartPaint(ov, part);
+    p.setAttribute('fill', paint.fill || 'none');
+    p.setAttribute('fill-rule', part.fillRule || 'nonzero');
+    if (paint.stroke) { p.setAttribute('stroke', paint.stroke); p.setAttribute('stroke-width', Math.max(0.25, (part.strokeWidth || 1) * scaleFactor)); }
+    gi.appendChild(p);
+  });
+  return gi;
+}
+
+function buildFillLayer(proj, sfx) {
+  var gFill = document.createElementNS(SVGNS, 'g'); gFill.id = 'fill' + (sfx || '');
+  var pFill = document.createElementNS(SVGNS, 'path');
+  pFill.setAttribute('d', proj.centerD);
+  pFill.setAttribute('fill', colorState.fillLayer === 'none' ? 'none' : colorState.fillLayer);
+  pFill.setAttribute('fill-rule', 'evenodd');
+  gFill.appendChild(pFill);
+  return gFill;
+}
+function buildBandLayers(proj, sfx) {
+  var gBand = document.createElementNS(SVGNS, 'g'); gBand.id = 'band' + (sfx || '');
+  var fillColor = colorState.fill === 'none' ? 'none' : colorState.fill;
+  var n = proj.proj2D.length;
+  var split = Depth.splitBandPieces(n, proj.z, PIECE_COUNT);
+  split.byDepth.forEach(function (piece) {
+    var p = document.createElementNS(SVGNS, 'path');
+    p.setAttribute('d', pieceD(proj.left, proj.right, piece.indices));
+    p.setAttribute('fill', fillColor);
+    p.setAttribute('fill-rule', 'nonzero');
+    gBand.appendChild(p);
+  });
+
+  var gCenter = document.createElementNS(SVGNS, 'g'); gCenter.id = 'center' + (sfx || '');
+  var pCenter = document.createElementNS(SVGNS, 'path');
+  pCenter.setAttribute('class', 'center');
+  pCenter.setAttribute('d', proj.centerD);
+  gCenter.appendChild(pCenter);
+
+  return { bandEl: gBand, centerEl: gCenter };
+}
+/* 段8: レイヤー一覧（state.layerOrder・先頭=前面）の並びどおりにDOMへ積む（後ろから前へ描く）。
+   非表示（visible:false）のレイヤーはここで飛ばす＝書き出し・映像のコマにも入らない。 */
+function buildOrderedLayers(projs) { // projs: computeAllProjections()の結果（輪のid→投影）
+  sanitizeLayerOrder();
+  var frag = document.createDocumentFragment();
+  var ax = values.angleX, ay = values.angleY, viewP = playState.P || mat3Identity();
+  var wobbleF = playState.wobbleFactor || 1;
+  // 塗り層は旧版と同じく全体の最下層（帯より後ろに置いた「載せるもの」が塗り層に隠れないように）
+  for (var f = state.layerOrder.length - 1; f >= 0; f--) {
+    var ftok = state.layerOrder[f];
+    if (ftok.indexOf('loop:') !== 0) continue;
+    var fli = loopIndexById(+ftok.slice(5));
+    if (fli < 0 || state.loops[fli].visible === false || !projs[state.loops[fli].id]) continue;
+    frag.appendChild(buildFillLayer(projs[state.loops[fli].id], loopIdSuffix(state.loops[fli])));
+  }
+  for (var i = state.layerOrder.length - 1; i >= 0; i--) {
+    var tok = state.layerOrder[i];
+    if (tok.indexOf('loop:') === 0) { // 輪: 帯・中心線（塗り層は上で描いた）
+      var li = loopIndexById(+tok.slice(5));
+      if (li < 0 || state.loops[li].visible === false || !projs[state.loops[li].id]) continue;
+      var lp = state.loops[li], lproj = projs[lp.id], sfx = loopIdSuffix(lp);
+      var bl = buildBandLayers(lproj, sfx);
+      frag.appendChild(bl.bandEl);
+      frag.appendChild(bl.centerEl);
+      continue;
+    }
+    var idx = overlayIndexById(+tok);
+    if (idx < 0) continue;
+    var ov = state.overlays[idx];
+    if (ov.visible === false) continue;
+    var oproj = projs[ov.loopId];
+    if (!oproj && ov.mode !== 'space') continue; // 沿わせる先の輪が描けない時は描かない
+    frag.appendChild(buildOverlayGroup(ov, idx, oproj, ax, ay, viewP, wobbleF));
+  }
+  return frag;
+}
+
+function isFrontDraggable() { return !values || (values.angleX === 0 && values.angleY === 0); }
+
+function render() {
+  frontCanvas.innerHTML = '';
+  sideCanvas.innerHTML = '';
+  frontCanvas.classList.toggle('no-drag', !isFrontDraggable());
+  // 段5・段6: 背景色（colorState.bg）を正面の表示に反映。「なし」はCSSの既定（var(--surface)）に戻す。
+  frontCanvas.style.background = '';
+  if (frameBox && colorState.bg && colorState.bg !== 'none') {   // 背景は版面の中だけに塗る（外は作業台の色）
+    var fbg = document.createElementNS(SVGNS, 'rect');
+    fbg.setAttribute('x', frameBox.x); fbg.setAttribute('y', frameBox.y);
+    fbg.setAttribute('width', frameBox.w); fbg.setAttribute('height', frameBox.h);
+    fbg.setAttribute('fill', colorState.bg); fbg.setAttribute('pointer-events', 'none');
+    frontCanvas.appendChild(fbg);
+  }
+  drawFrameGuide();
+  frontArtGroup = null;
+  var projs = computeAllProjections();
+  if (!Object.keys(projs).length) return;
+
+  // インスタONの絵を版面に収めるグループ（006 §0 版面）。背景・版面ガイドは外側のまま
+  // （拡縮しない）。ポインタのCTM逆変換もこのグループを基準にする（svgPointFromEvent）。
+  frontArtGroup = document.createElementNS(SVGNS, 'g');
+  frontArtGroup.setAttribute('class', 'fit-art');
+  var fit = computeFitTransform();
+  if (fit) frontArtGroup.setAttribute('transform', fit.transform);
+  frontCanvas.appendChild(frontArtGroup);
+
+  frontArtGroup.appendChild(buildOrderedLayers(projs)); // 段8: 輪ごとの塗り層・帯と「載せるもの」をレイヤー一覧の並び順で描く
+  var proj = projs[activeLoopId()]; // アンカーの丸・側面は作業中の輪だけ
+
+  // 元の線（線幅の抑揚から読んだ場合のみ）。g#centerの下（直後）に重ねる。書き出しには入れない。
+  if (values.overlaySource && state.sourceOverlaySegs) {
+    var overlayD = buildOverlayD();
+    if (overlayD) {
+      var pOverlay = document.createElementNS(SVGNS, 'path');
+      pOverlay.setAttribute('class', 'overlaySrc');
+      pOverlay.setAttribute('d', overlayD);
+      frontArtGroup.appendChild(pOverlay);
+    }
+  }
+
+  // 正面: アンカーの丸（線が必ず通る点）。Depth.rotateProject(angleX,angleY)後の(x,y)に描く（回転に追従）。
+  var gPtsFront = document.createElementNS(SVGNS, 'g');
+  var showAnchors = !values || values.showAnchors !== false;
+  if (!proj) { frontArtGroup.appendChild(gPtsFront); return; }
+  if (showAnchors) proj.anchorsRotated.forEach(function (p, i) {
+    var g = document.createElementNS(SVGNS, 'g');
+    var isAnchor = !!(state.isAnchor && state.isAnchor[i]);
+    g.setAttribute('class', 'pt' + (isAnchor ? ' anchor' : '') + (i === state.selected ? ' sel' : ''));
+    g.dataset.idx = String(i);
+    var circle = document.createElementNS(SVGNS, 'circle');
+    circle.setAttribute('cx', p[0]); circle.setAttribute('cy', p[1]); circle.setAttribute('r', 6);
+    g.appendChild(circle);
+    gPtsFront.appendChild(g);
+  });
+  frontArtGroup.appendChild(gPtsFront);
+
+  // 側面: 中心線（元のx,z。evalClosedの一様u点列をCatmull-Romで結ぶ細い線）＋アンカーの丸。
+  // 横軸x・縦軸z（上が手前=+z）。側面は常に元のx,zで描く（正面のような回転追従はしない）。
+  // 段3C: 再生中の奥行きの揺れも反映するため、state.anchorsではなくproj.anchorsNow（表示用）を使う。
+  var sideCurvePts = proj.dense.pts3D.map(function (p) { return [p[0], -p[2]]; });
+  var sideCurveD = Outline.segsToClosedD(Outline.catmullRomClosedSegments(sideCurvePts));
+  var pSideCurve = document.createElementNS(SVGNS, 'path');
+  pSideCurve.setAttribute('class', 'center');
+  pSideCurve.setAttribute('d', sideCurveD);
+  sideCanvas.appendChild(pSideCurve);
+
+  var gPtsSide = document.createElementNS(SVGNS, 'g');
+  if (showAnchors) proj.anchorsNow.forEach(function (a, i) {
+    var g = document.createElementNS(SVGNS, 'g');
+    var isAnchor = !!(state.isAnchor && state.isAnchor[i]);
+    g.setAttribute('class', 'pt' + (isAnchor ? ' anchor' : '') + (i === state.selected ? ' sel' : ''));
+    g.dataset.idx = String(i);
+    var circle = document.createElementNS(SVGNS, 'circle');
+    circle.setAttribute('cx', a[0]); circle.setAttribute('cy', -a[2]); circle.setAttribute('r', 6);
+    g.appendChild(circle);
+    gPtsSide.appendChild(g);
+  });
+  sideCanvas.appendChild(gPtsSide);
+}
+
+/* --- キャンバス操作 -------------------------------------------------------
+   正面: ドラッグでx,yを動かす。側面: 上下ドラッグでzを動かす。クリックで選択。 --- */
+// ctmEl: CTMの逆変換をどの要素基準で取るか（省略時はsvg自身）。正面はインスタONだと絵を
+// fitInto分だけ拡縮しているため、frontArtGroup基準で取らないと当たり判定がずれる。
+function svgPointFromEvent(svg, e, ctmEl) {
+  var pt = svg.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  var ctm = (ctmEl || svg).getScreenCTM().inverse();
+  var p = pt.matrixTransform(ctm);
+  return [p.x, p.y];
+}
+
+// rAF合流: 高頻度pointermoveでも1フレーム1回だけrender()する（回転ドラッグ用）
+var renderScheduled = false;
+function scheduleRender() {
+  if (renderScheduled) return;
+  renderScheduled = true;
+  requestAnimationFrame(function () { renderScheduled = false; render(); });
+}
+
+frontCanvas.addEventListener('pointerdown', function (e) {
+  var hitEl = e.target.closest('.pt');
+  var hitIdx = hitEl ? +hitEl.dataset.idx : -1;
+  if (hitIdx < 0) {
+    // アンカーの丸以外を押した場合＝回転（線幅の抑揚 startRotateDragと同じ感度）
+    selectPoint(-1);
+    startRotateDrag(e);
+    return;
+  }
+  selectPoint(hitIdx);
+  // 角度が(0,0)以外のときは選択だけ（丸の見た目位置は回転後の投影で、x,yドラッグの
+  // 対象である「元のx,y」とは食い違うため、動かせなくする＝カーソルもdefault）。
+  if (isFrontDraggable()) startDragFront(e, hitIdx);
+});
+
+/* --- 正面キャンバスの空白ドラッグ＝回転（0.4°/px・縦-90..90・横-180..180） --- */
+function startRotateDrag(e) {
+  try { frontCanvas.setPointerCapture(e.pointerId); } catch (e2) { /* 無視 */ }
+  var start = [e.clientX, e.clientY];
+  var x0 = values.angleX, y0 = values.angleY;
+  var SENS = 0.4; // 1pxあたりの角度(°)
+  isDragging = true; // 版面フィットの拡縮はドラッグ中固定（006 §0）
+  function move(ev) {
+    var dx = ev.clientX - start[0], dy = ev.clientY - start[1];
+    values.set('angleX', Math.max(-180, Math.min(180, x0 + dy * SENS)));
+    values.set('angleY', Math.max(-180, Math.min(180, y0 + dx * SENS)));
+    scheduleRender();
+  }
+  function up(ev) {
+    frontCanvas.removeEventListener('pointermove', move);
+    frontCanvas.removeEventListener('pointerup', up);
+    try { frontCanvas.releasePointerCapture(ev.pointerId); } catch (e2) { /* 無視 */ }
+    isDragging = false;
+    render(); // 最終フレームは即描画（拡縮も最新の外接で入れ直す）
+    pushHistory();
+  }
+  frontCanvas.addEventListener('pointermove', move);
+  frontCanvas.addEventListener('pointerup', up);
+}
+
+function startDragFront(e, idx) {
+  try { frontCanvas.setPointerCapture(e.pointerId); } catch (e2) { /* 無視 */ }
+  isDragging = true; // 版面フィットの拡縮はドラッグ中固定（掴んだ点が逃げないように・006 §0）
+  function move(ev) {
+    var p = svgPointFromEvent(frontCanvas, ev, frontArtGroup);
+    state.anchors[idx][0] = p[0];
+    state.anchors[idx][1] = p[1];
+    render();
+  }
+  function up(ev) {
+    frontCanvas.removeEventListener('pointermove', move);
+    frontCanvas.removeEventListener('pointerup', up);
+    try { frontCanvas.releasePointerCapture(ev.pointerId); } catch (e2) { /* 無視 */ }
+    isDragging = false;
+    render(); // 最終位置で拡縮を入れ直す
+    pushHistory();
+  }
+  frontCanvas.addEventListener('pointermove', move);
+  frontCanvas.addEventListener('pointerup', up);
+}
+
+sideCanvas.addEventListener('pointerdown', function (e) {
+  var hitEl = e.target.closest('.pt');
+  var hitIdx = hitEl ? +hitEl.dataset.idx : -1;
+  if (hitIdx < 0) { selectPoint(-1); return; }
+  selectPoint(hitIdx);
+  startDragSide(e, hitIdx);
+});
+
+// 側面ドラッグで隣のアンカーも一緒に動かす（前後spreadN点までsmoothstepで減衰。0なら1点だけ）。
+function applySideDragToNeighbors(idx, deltaZ, spreadN) {
+  var N = state.anchors.length;
+  var k = Math.max(0, Math.round(spreadN || 0));
+  if (k <= 0 || Math.abs(deltaZ) < 1e-9) return;
+  for (var d = 1; d <= k; d++) {
+    var u = 1 - d / (k + 1); // d=1で1に近く、d=kで1/(k+1)（>0）
+    var w = Outline.smoothstep(u);
+    var li = ((idx - d) % N + N) % N;
+    var ri = (idx + d) % N;
+    state.anchors[li][2] += deltaZ * w;
+    state.anchors[ri][2] += deltaZ * w;
+  }
+}
+function startDragSide(e, idx) {
+  try { sideCanvas.setPointerCapture(e.pointerId); } catch (e2) { /* 無視 */ }
+  isDragging = true; // 奥行きを変えると正面の版面フィットも動くため、ドラッグ中は固定（006 §0）
+  function move(ev) {
+    var p = svgPointFromEvent(sideCanvas, ev);
+    var newZ = -p[1]; // 上が手前(+z)
+    var deltaZ = newZ - state.anchors[idx][2];
+    state.anchors[idx][2] = newZ;
+    applySideDragToNeighbors(idx, deltaZ, values.depthSpreadN);
+    if (state.selected === idx) values.set('ptZ', Math.round(state.anchors[idx][2]));
+    render();
+  }
+  function up(ev) {
+    sideCanvas.removeEventListener('pointermove', move);
+    sideCanvas.removeEventListener('pointerup', up);
+    try { sideCanvas.releasePointerCapture(ev.pointerId); } catch (e2) { /* 無視 */ }
+    isDragging = false;
+    render();
+    pushHistory();
+  }
+  sideCanvas.addEventListener('pointermove', move);
+  sideCanvas.addEventListener('pointerup', up);
+}
+
+/* --- 貼り付け欄 ------------------------------------------------------------ */
+var svgPasteEl = document.getElementById('svgPaste');
+document.getElementById('loadPasteBtn').addEventListener('click', function () {
+  loadSourceSvg(svgPasteEl.value);
+});
+document.getElementById('loadSidePasteBtn').addEventListener('click', function () {
+  loadSideSvg(sideSvgPasteEl.value);
+});
+document.getElementById('removeSideBtn').addEventListener('click', removeSideSvg);
+/* 向きを飛ばす: 正面＝縦0°横0°（「SVGを貼る」の形が見える）、横＝縦0°横90°（「横から見た形」が見える）。
+   再生で積んだ回転も捨てる（resetAngle と同じ） */
+function viewAt(ax, ay) {
+  values.set('angleX', ax); values.set('angleY', ay);
+  playState.P = mat3Identity();
+  render(); pushHistory();
+}
+document.getElementById('viewFrontBtn').addEventListener('click', function () { viewAt(0, 0); });
+document.getElementById('viewSideBtn').addEventListener('click', function () { viewAt(0, 90); });
+
+/* --- 書き出し（006_ツールの規格 §1〜§4） --------------------------------- */
+/* 段5・§13 VID-01「背景色を変えられる」／§8 COPY-01「⌘C/SVGをコピーは地色を含めない
+   （書き出し・PNGは含める）」。includeBg=trueの時だけ、g#art（§4 OUT-03: 図版はg#artが
+   1個）の最初の子として背景矩形を差し込む（g#artを2個に増やさない）。「なし」なら描かない。 */
+function buildExportSVG(includeBg) {
+  if (includeBg === undefined) includeBg = true;
+  var svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('xmlns', SVGNS);
+  var fb = frameBox || { x: -HALF, y: -HALF, w: 2 * HALF, h: 2 * HALF };   // 書き出しの範囲＝版面（§13 VID-01）
+  svg.setAttribute('viewBox', fb.x + ' ' + fb.y + ' ' + fb.w + ' ' + fb.h);
+  svg.setAttribute('width', fb.w); svg.setAttribute('height', fb.h);
+  var art = document.createElementNS(SVGNS, 'g'); art.id = 'art';
+  if (includeBg && colorState.bg && colorState.bg !== 'none') {
+    var bgRect = document.createElementNS(SVGNS, 'rect');
+    bgRect.setAttribute('x', fb.x); bgRect.setAttribute('y', fb.y);
+    bgRect.setAttribute('width', fb.w); bgRect.setAttribute('height', fb.h);
+    bgRect.setAttribute('fill', colorState.bg);
+    art.appendChild(bgRect);
+  }
+  // インスタONの絵を版面に収める（006 §0）。背景は上で既に版面いっぱいのまま足しているので対象外。
+  var fitG = document.createElementNS(SVGNS, 'g');
+  var fit = computeFitTransform();
+  if (fit) fitG.setAttribute('transform', fit.transform);
+  fitG.appendChild(buildOrderedLayers(computeAllProjections())); // 段8: 画面と同じ並び順・非表示レイヤーは含めない
+  art.appendChild(fitG);
+  svg.appendChild(art);
+  svg.style.cssText = 'position:fixed;left:-99999px;top:0';
+  document.body.appendChild(svg);
+  return svg;
+}
+
+/* --- 上部バー共通操作（Studio.stageBar・§13 VID-02/03）用の橋渡し ------------------
+   getParams/apply: パネルの数値・色の値（values＋colorState）のスナップショット。
+   frame: 1コマ分のSVG文字列。A/Bが記録されていればparamsを一時的に当てて
+   buildExportSVG(true)を呼び、終わったら元に戻す。A/B無し（params:null）は既存の
+   回転再生（再生群の速度・奥行きの揺れ）をt秒時点まで進めた状態を作る（段2指示）。 --- */
+function motionParams() {
+  var p = {};
+  Object.keys(values).forEach(function (k) { p[k] = values[k]; });
+  p.fill = colorState.fill; p.fillLayer = colorState.fillLayer; p.bg = colorState.bg;
+  // 段5: 「載せるもの」各項目の数値設定（位置・長さ・幅・ずらし・x・y・奥行き・大きさ・回転）を
+  // ov{idx}_keyの形で平らにしてA/B・映像の対象へ含める（overlay.js Overlay.flattenOverlayParams）。
+  var ovFlat = Overlay.flattenOverlayParams(state.overlays);
+  Object.keys(ovFlat).forEach(function (k) { p[k] = ovFlat[k]; });
+  return p;
+}
+function applyParamsToState(p) {
+  Object.keys(p).forEach(function (k) {
+    if (k === 'fill' || k === 'fillLayer' || k === 'bg') { colorState[k] = p[k]; }
+    else if (Object.prototype.hasOwnProperty.call(values, k)) { values.set(k, p[k]); }
+  });
+  Overlay.applyOverlayParams(p, state.overlays);
+  if (state.selectedOverlay >= 0) syncPanelFromSelectedOverlay();
+}
+// A/B再生（stageBarのrAFループ）から毎フレーム呼ばれる。画面を更新する。
+function applyMotionParams(p) { applyParamsToState(p); render(); }
+
+var exportSim = null; // A/B無し書き出し専用の累積回転（frame()は時刻順に呼ばれる前提）
+function frameFromOwnMotion(t) {
+  if (!exportSim || t <= 1e-9) exportSim = { P: mat3Identity(), lastT: 0 };
+  var dt = Math.max(0, t - exportSim.lastT);
+  var dPitch = values.playSpeedX * dt, dYaw = values.playSpeedY * dt;
+  if (dPitch !== 0 || dYaw !== 0) exportSim.P = mat3Mul(mat3Mul(mat3RotX(dPitch), mat3RotY(dYaw)), exportSim.P);
+  exportSim.lastT = t;
+  var a = (values.playWobble || 0) / 100, T = values.playPeriod || 3;
+  var wobble = 1 + a * Math.sin(2 * Math.PI * t / T);
+  var savedP = playState.P, savedActive = playState.active, savedWobble = playState.wobbleFactor;
+  playState.P = exportSim.P; playState.active = true; playState.wobbleFactor = wobble;
+  var svg = buildExportSVG(true);
+  var text = Studio.serializeSVG(svg, { standard: true });
+  document.body.removeChild(svg);
+  playState.P = savedP; playState.active = savedActive; playState.wobbleFactor = savedWobble;
+  return text;
+}
+function frameForExport(ctx) {
+  if (!state.anchors || state.anchors.length < 3) throw new Error('先にアンカーを置いてください');
+  if (!ctx.params) return frameFromOwnMotion(ctx.t);
+  var beforeValues = {};
+  Object.keys(values).forEach(function (k) { beforeValues[k] = values[k]; });
+  var beforeColor = { fill: colorState.fill, fillLayer: colorState.fillLayer, bg: colorState.bg };
+  applyParamsToState(ctx.params); // render()は呼ばない（書き出し中に画面を毎コマ更新しない）
+  var svg = buildExportSVG(true);
+  var text = Studio.serializeSVG(svg, { standard: true });
+  document.body.removeChild(svg);
+  Object.keys(beforeValues).forEach(function (k) { values.set(k, beforeValues[k]); });
+  colorState.fill = beforeColor.fill; colorState.fillLayer = beforeColor.fillLayer; colorState.bg = beforeColor.bg;
+  return text;
+}
+function fileBase() { return Studio.fname(TOOL, 'ax' + values.angleX + '_ay' + values.angleY); }
+function memoText() { return bar.memoText(); }
+function exportMeta() {
+  sanitizeLayerOrder();
+  var params = {
+    loops: state.loops.map(function (l) {
+      return {
+        id: l.id, anchors: l.anchors, isAnchor: l.isAnchor || l.anchors.map(function () { return false; }),
+        sourceSvg: l.sourceText, sourceSvgSide: l.sourceTextSide, ctrlCount: l.ctrlCount, visible: l.visible !== false
+      };
+    }),
+    activeLoop: state.activeLoop,
+    angleX: values.angleX, angleY: values.angleY, baseWidth: values.baseWidth,
+    viewRot: (playState.P || mat3Identity()).slice(), // 段4是正: 再生で積んだ画面軸回転
+    fill: colorState.fill, fillLayer: colorState.fillLayer, bg: colorState.bg,
+    overlays: state.overlays, // 段6: 正規化済みの折れ線・色・設定そのもの（旧SVGは無し＝空配列で復元）
+    layerOrder: state.layerOrder.slice() // 段8: レイヤーの並び順（先頭=前面）。輪は 'loop:<id>'
+  };
+  return { tool: TOOL, pj: PJ, law: LAW, seed: null, memo: memoText(), toolVersion: TOOL_VERSION, paramsVersion: PARAMS_VERSION, params: params };
+}
+function doExportSVG() {
+  if (!state.anchors || state.anchors.length < 3) { Studio.toast('先にアンカーを置いてください', { kind: 'error', sticky: true }); return; }
+  var svg = buildExportSVG(true); // §13 VID-01: 書き出しは背景込み
+  var name = fileBase();
+  Studio.exportSVG(svg, { name: name, standard: true, meta: exportMeta() });
+  document.body.removeChild(svg);
+  Studio.toast(name + '.svg');
+}
+function doCopySVG() {
+  if (!state.anchors || state.anchors.length < 3) { Studio.toast('先にアンカーを置いてください', { kind: 'error', sticky: true }); return; }
+  var svg = buildExportSVG(false); // §8 COPY-01: ⌘C/コピーは地色を含めない
+  var text = Studio.serializeSVG(svg, { standard: true, meta: exportMeta() });
+  document.body.removeChild(svg);
+  Studio.copySVG(text).then(function (result) {
+    Studio.toast(Studio.copyResultMessage(result));
+  }).catch(function (e) {
+    Studio.toast(e.message || 'コピーできませんでした', { kind: 'error', sticky: true });
+  });
+}
+
+/* --- 段4: 動きの書き出し（150_動きの書き出し）へのシーンJSON出口（141_動きと空間への展開/scene-json.md
+   §2「scene/1」契約）。DOMに依存しない・computeProjection()の結果から作る（148 三角格子ロゴの
+   buildSceneJSON/doExportSceneJSONと同じ書き方。ただしsceneValidateへ直接渡して検査するため
+   scene:'1'をここで入れておく＝Studio.sceneExportのfinalizeSceneが上書きしても同じ値）。 --- */
+function buildSceneJSON() {
+  var projs = computeAllProjections();
+  var hasFillLayer = colorState.fillLayer !== 'none';
+  sanitizeLayerOrder();
+
+  // 輪ごとに fill/band/center と units を作る。1本目の輪は今のid（fill/band/center/band/<k>）のまま、
+  // 2本目以降は輪のidを付ける（fill2/band2/center2/band2/<k>）。後ろの層から前へ並べる。非表示の輪は入れない。
+  var shapes = [], units = [];
+  for (var oi = state.layerOrder.length - 1; oi >= 0; oi--) {
+    var tok = state.layerOrder[oi];
+    if (tok.indexOf('loop:') !== 0) continue;
+    var li = loopIndexById(+tok.slice(5));
+    if (li < 0 || state.loops[li].visible === false || !projs[state.loops[li].id]) continue;
+    var loop = state.loops[li], proj = projs[loop.id], sfx = loopIdSuffix(loop);
+    var n = proj.proj2D.length;
+    var split = Depth.splitBandPieces(n, proj.z, PIECE_COUNT);
+    if (hasFillLayer) shapes.push({ id: 'fill' + sfx, layer: 'fill' + sfx, color: colorState.fillLayer, d: proj.centerD });
+    var bandDAll = split.byDepth.map(function (piece) { return pieceD(proj.left, proj.right, piece.indices); }).join(' ');
+    shapes.push({ id: 'band' + sfx, layer: 'band' + sfx, color: colorState.fill, d: bandDAll });
+    shapes.push({ id: 'center' + sfx, layer: 'center' + sfx, color: '#999999', d: proj.centerD });
+    if (hasFillLayer) {
+      units.push({ id: 'fill' + sfx, layer: 'fill' + sfx, color: colorState.fillLayer, pts: proj.proj2D.map(function (p) { return [round2(p[0]), round2(p[1])]; }), step: 0 });
+    }
+    var stepBase = hasFillLayer ? 1 : 0;
+    split.byDepth.forEach(function (piece, k) {
+      units.push({ id: 'band' + sfx + '/' + k, layer: 'band' + sfx, color: colorState.fill, pts: piecePts(proj.left, proj.right, piece.indices), step: stepBase + k });
+    });
+  }
+  var maxStep = -1;
+  units.forEach(function (u) { if (u.step > maxStep) maxStep = u.step; });
+
+  var first = state.loops[0] || newLoop(1);
+  return {
+    scene: '1',
+    tool: TOOL, pj: PJ,
+    box: [-HALF, -HALF, 2 * HALF, 2 * HALF],
+    style: { bg: (colorState.bg && colorState.bg !== 'none') ? colorState.bg : 'none' }, // 段5: 背景色を器へ通す
+    shapes: shapes,
+    units: units,
+    steps: { count: maxStep + 1 },
+    rule: {
+      type: 'spline3d',
+      anchors: first.anchors, isAnchor: first.isAnchor, // 1本目の輪（今までの器の読み方のまま）
+      loops: state.loops.map(function (l) { return { id: l.id, anchors: l.anchors, isAnchor: l.isAnchor, ctrlCount: l.ctrlCount }; }),
+      angleX: values.angleX, angleY: values.angleY, baseWidth: values.baseWidth,
+      placeMode: values.ctrlPlacement,
+      viewRot: (playState.P || mat3Identity()).slice(),
+      playback: { rotateY: values.playSpeedY, rotateX: values.playSpeedX, swing: values.playWobble, period: values.playPeriod }
+    },
+    meta: exportMeta()
+  };
+}
+function doExportSceneJSON() {
+  if (!state.anchors || state.anchors.length < 3) { Studio.toast('先にアンカーを置いてください', { kind: 'error', sticky: true }); return; }
+  var scene = buildSceneJSON();
+  var result = Studio.sceneValidate(scene);
+  if (!result.ok) { Studio.toast(result.errors[0], { kind: 'error', sticky: true }); return; }
+  var name = fileBase();
+  Studio.sceneExport(scene, { name: name + '_scene' });
+  Studio.toast(name + '_scene.json を書き出しました（動きの書き出しで開けます）');
+}
+window.buildSceneJSON = buildSceneJSON; // DoD用に公開
+
+/* --- 初期状態: 説明を読まなくても円が置ける（placeDefaultCircleと同じ形） --- */
+placeDefaultCircle();
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Studio のツール</title>
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Studio のツール">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--ink:#1e1e1e;--paper:#fff;--hair:#e6e6e6;--line:1px}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink)}
+body{font:500 16px/1.4 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif;
+  padding:max(20px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  max-width:1000px;margin:0 auto;-webkit-text-size-adjust:100%}
+h1{margin:0 0 16px;font-size:20px;font-weight:800}
+ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr;column-gap:24px}
+li{border-top:var(--line) solid var(--ink)}
+li:last-child{border-bottom:var(--line) solid var(--ink)}
+a{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:8px 0;color:var(--ink);text-decoration:none;-webkit-tap-highlight-color:transparent}
+a:active{background:var(--hair)}
+a:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+.name{font-size:17px;font-weight:800;min-width:0;overflow-wrap:anywhere}
+.go{font-size:14px;font-weight:600;flex:none}
+.ext{margin-top:24px}
+@media(min-width:700px){ul{grid-template-columns:1fr 1fr}li:nth-last-child(2):nth-child(odd){border-bottom:var(--line) solid var(--ink)}}
+</style></head>
+<body>
+<h1>Studio のツール</h1>
+<ul>
+<li><a href="spline-draw/"><span class="name">スプライン描画</span><span class="go">開く</span></a></li>
+<li><a href="bspline/"><span class="name">Bスプライン</span><span class="go">開く</span></a></li>
+<li><a href="circle-contact/"><span class="name">正円接触パターン</span><span class="go">開く</span></a></li>
+<li><a href="stroke-swell/"><span class="name">線幅の抑揚</span><span class="go">開く</span></a></li>
+<li><a href="sweep-along/"><span class="name">沿わせ配置</span><span class="go">開く</span></a></li>
+<li><a href="solid-spline/"><span class="name">立体スプライン</span><span class="go">開く</span></a></li>
+<li><a href="grid-pattern/"><span class="name">グリッドパターン生成ツール</span><span class="go">開く</span></a></li>
+<li><a href="palette-adjust/"><span class="name">配色の調整</span><span class="go">開く</span></a></li>
+<li><a href="sphere-surface/"><span class="name">球体サーフェイス</span><span class="go">開く</span></a></li>
+<li><a href="tri-grid-logo/"><span class="name">三角格子ロゴ</span><span class="go">開く</span></a></li>
+</ul>
+<ul class="ext">
+<li><a href="https://shungo3215-svg.github.io/symmetry-machine/"><span class="name">symmetry machine</span><span class="go">開く</span></a></li>
+</ul>
+<script>
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').catch(function(err){ console.info('studio-apps: 入口のオフライン準備に失敗', err); });
+})();
+</script>
+</body></html>

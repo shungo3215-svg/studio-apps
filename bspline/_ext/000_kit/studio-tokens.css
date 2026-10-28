@@ -1,0 +1,30 @@
+/* studio-tokens.css — Studio の見た目の調整値（--t-*）の正本（006 §6）。
+   studio2.css が @import し、非kitツールは直接読む。?tune の調整パネル → apply-ui-tune.py が書き換える。手で直さない */
+/* === UI調整値ここから（apply-ui-tune.py が書き換える） === */
+:root{
+  --t-ink:#1e1e1e;
+  --t-paper:#FFFFFF;
+  --t-muted:#787878;
+  --t-stage:#F2F2F2;
+  --t-hair:#E6E6E6;
+  --t-w-name:500;
+  --t-w-head:800;
+  --t-w-label:600;
+  --t-w-num:600;
+  --t-w-btn:600;
+  --t-fs-name:16px;
+  --t-fs-head:16px;
+  --t-fs-label:12px;
+  --t-fs-num:12px;
+  --t-fs-btn:12px;
+  --t-line:1px;
+  --t-radius:2px;
+  --t-thumb:9px;
+  --t-bar-h:64px;
+  --t-btn-h:32px;
+  --t-panel-w:320px;
+  --t-grp-pad:16px;
+  --t-row-gap:14px;
+  /* 出所: studio-ui-tune_202609250649.json (2026-09-25T06:49:12.562Z) */
+}
+/* === UI調整値ここまで === */

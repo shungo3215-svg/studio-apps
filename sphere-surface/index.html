@@ -1,0 +1,501 @@
+<!doctype html>
+<html data-sm-build="c96066f・2026-10-28 09:33" data-sm-app="sphere-surface" lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>球面パターン</title>
+<link rel="stylesheet" href="_ext/000_kit/studio.css">
+<style>
+  body { margin: 0; }
+  /* ステージは画面内に収める（縦スクロールで球が切れないように） */
+  .studio-stage { position: sticky; top: 24px; align-self: start; }
+  .studio-stage svg { max-height: calc(100vh - 120px); width: auto; }
+  .note { font-size: 11px; line-height: 1.6; color: var(--muted); margin: 6px 0 10px; }
+  .stat { font-size: 11px; color: var(--muted); }
+  /* 一覧モーダル */
+  .vmodal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+            place-items: center; z-index: 50; }
+  .vmodal.open { display: grid; }
+  .vbox { background: var(--panel); border-radius: var(--radius); padding: 18px;
+          width: min(1150px, 94vw); max-height: 92vh; overflow: auto; }
+  .vgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .vcell { text-align: center; }
+  .vcell svg { width: 100%; height: auto; display: block; border-radius: 6px; }
+  .vcell b { font-size: 12px; display: block; margin-top: 6px; }
+  .vcell span { font-size: 10px; color: var(--muted); }
+  .vhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .vhead h2 { font-size: 14px; margin: 0; }
+  .vhead button { font: inherit; font-size: 12px; cursor: pointer; background: none;
+                  border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; color: var(--ink); }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body>
+<div class="studio-app">
+  <aside class="studio-panel" id="panel">
+    <h1>球面フィールド</h1>
+    <p class="note">
+      球の見えている半球の上に <b>スカラー場 f</b> を定義し、その等値線で帯に切って塗る。<br>
+      「グラデーションが球に沿う」とは何かを、<b>場の決め方</b>で作り分ける装置。<br>
+      <b>平面</b>＝沿っていない基準（対照）。
+    </p>
+  </aside>
+  <main class="studio-stage">
+    <svg id="art" viewBox="0 0 640 640" width="640" height="640" xmlns="http://www.w3.org/2000/svg"></svg>
+  </main>
+</div>
+
+<div class="vmodal" id="vmodal">
+  <div class="vbox">
+    <div class="vhead">
+      <h2>場の一覧（同じ色・同じ段数）</h2>
+      <button id="vclose">閉じる（Esc）</button>
+    </div>
+    <div class="vgrid" id="vgrid"></div>
+  </div>
+</div>
+
+<script src="_ext/000_kit/studio-kit.js"></script>
+<script>
+/* ============================================================================
+   球面フィールド — 球（台A）に スカラー場（B）を沿わせる
+   ---------------------------------------------------------------------------
+   設計の核:
+   1. 可視半球を「視線方向を極とする極座標」でグリッド化する。
+      正射影すると画面上のちょうど同心円グリッドになるので、
+      球のシルエット（円）がグリッドの外周と厳密に一致する = クリップ不要。
+   2. 各セルの法線 n から スカラー場 f(n) ∈ [0,1] を計算する。
+      場の決め方を差し替えることが、そのまま「沿わせ方」の違いになる。
+   3. f を steps 段に量子化し、同じ段のセル群の輪郭を追跡して 1バンド = 1パス にする。
+      （Illustrator でアンカーが暴れないための輪郭追跡。059_sphere-cloth と同じ考え方）
+   ========================================================================== */
+
+var SVGNS = 'http://www.w3.org/2000/svg';
+var art = document.getElementById('art');
+var W = 640, H = 640, CX = 320, CY = 320, R = 268;
+var DEG = Math.PI / 180;
+
+/* ---------- 色: OKLab 補間（sRGB 直線補間の濁りを避ける） ---------- */
+function hex2rgb(h){ h = h.replace('#',''); if(h.length===3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  return [parseInt(h.slice(0,2),16)/255, parseInt(h.slice(2,4),16)/255, parseInt(h.slice(4,6),16)/255]; }
+function rgb2hex(c){ var to=function(v){ v=Math.round(Math.max(0,Math.min(1,v))*255);
+  return v.toString(16).padStart(2,'0'); }; return '#'+to(c[0])+to(c[1])+to(c[2]); }
+function srgb2lin(v){ return v <= 0.04045 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); }
+function lin2srgb(v){ return v <= 0.0031308 ? v*12.92 : 1.055*Math.pow(v, 1/2.4) - 0.055; }
+function rgb2oklab(c){
+  var r = srgb2lin(c[0]), g = srgb2lin(c[1]), b = srgb2lin(c[2]);
+  var l = Math.cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b);
+  var m = Math.cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b);
+  var s = Math.cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b);
+  return [0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+          1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+          0.0259040371*l + 0.7827717662*m - 0.8086757660*s];
+}
+function oklab2rgb(c){
+  var l = c[0] + 0.3963377774*c[1] + 0.2158037573*c[2];
+  var m = c[0] - 0.1055613458*c[1] - 0.0638541728*c[2];
+  var s = c[0] - 0.0894841775*c[1] - 1.2914855480*c[2];
+  l = l*l*l; m = m*m*m; s = s*s*s;
+  return [lin2srgb( 4.0767416621*l - 3.3077115913*m + 0.2309699292*s),
+          lin2srgb(-1.2684380046*l + 2.6097574011*m - 0.3413193965*s),
+          lin2srgb(-0.0041960863*l - 0.7034186147*m + 1.7076147010*s)];
+}
+function mixColor(a, b, t, space){
+  if (space === 'oklab') {
+    var A = rgb2oklab(hex2rgb(a)), B = rgb2oklab(hex2rgb(b));
+    return rgb2hex(oklab2rgb([A[0]+(B[0]-A[0])*t, A[1]+(B[1]-A[1])*t, A[2]+(B[2]-A[2])*t]));
+  }
+  var P = hex2rgb(a), Q = hex2rgb(b);
+  return rgb2hex([P[0]+(Q[0]-P[0])*t, P[1]+(Q[1]-P[1])*t, P[2]+(Q[2]-P[2])*t]);
+}
+
+/* ---------- 方向ベクトル（方位az / 仰角el、az=0,el=0 は視線方向＝正面） ---------- */
+function dir(azDeg, elDeg){
+  var a = azDeg*DEG, e = elDeg*DEG;
+  return [Math.cos(e)*Math.sin(a), Math.sin(e), Math.cos(e)*Math.cos(a)];
+}
+function dot(a,b){ return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+function cross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function norm(a){ var l = Math.hypot(a[0],a[1],a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; }
+
+/* ---------- スカラー場 f(n) ∈ [0,1] ----------
+   ここが「沿わせ方」の本体。5種は次の2系統に分かれる:
+     外在的（空間の向きで決まる / 球の"表面"を参照しない）… shade
+     内在的（球面上の座標に沿う / 経緯度に貼り付く）      … colat, lon, decal
+     対照（そもそも沿っていない・画面の平面グラデ）        … plane
+*/
+function makeField(v){
+  var p = norm(dir(v.axisAz, v.axisEl));      // 極の向き
+  var L = norm(dir(v.lightAz, v.lightEl));    // 光の向き
+  // 極 p に直交する基準フレーム（経度の 0 を決める）
+  var seed0 = Math.abs(p[1]) > 0.99 ? [0,0,1] : [0,1,0];
+  var U = norm([seed0[0]-p[0]*dot(seed0,p), seed0[1]-p[1]*dot(seed0,p), seed0[2]-p[2]*dot(seed0,p)]);
+  var Vv = cross(p, U);
+  var pa = v.planeAngle*DEG, ca = Math.cos(pa), sa = Math.sin(pa);
+
+  return function(n, sx, sy){
+    var f;
+    switch (v.field) {
+      case 'plane':  // 対照: 球と無関係な画面の平面グラデ（正射影後の x,y だけで決まる）
+        f = 0.5 + (sx*ca + sy*sa) / 2; break;
+      case 'shade':  // 外在的: 光との内積（ランバート）
+        f = (dot(n, L) + 1) / 2; break;
+      case 'colat':  // 内在的: 極からの角度＝緯度帯
+        f = Math.acos(Math.max(-1, Math.min(1, dot(n, p)))) / Math.PI; break;
+      case 'lon': {  // 内在的: 極まわりの方位＝経度帯
+        var ang = Math.atan2(dot(n, Vv), dot(n, U));
+        f = ang / (2*Math.PI) + 0.5; break;
+      }
+      case 'decal': {// 内在的: 経緯度を UV とみなして平面グラデを貼る（デカール）
+        var a2 = Math.atan2(dot(n, Vv), dot(n, U));
+        var u = a2 / (2*Math.PI) + 0.5;
+        var w = Math.acos(Math.max(-1, Math.min(1, dot(n, p)))) / Math.PI;
+        f = 0.5 + ((u-0.5)*ca + (w-0.5)*sa); break;
+      }
+      default: f = 0.5;
+    }
+    return Math.max(0, Math.min(1, f));
+  };
+}
+
+/* ---------- 可視半球のグリッド ----------
+   i: 中心からの半径ステップ 0..M（画面半径 r = R*i/M、法線の極角 t = asin(i/M)）
+   j: 方位 0..N-1（周期）
+   → 正射影で画面上の同心円グリッドに一致し、i=M がシルエット円そのものになる。
+*/
+function buildGrid(v){
+  var M = v.rad, N = v.seg;
+  var P = [], NM = [];
+  for (var i = 0; i <= M; i++){
+    var rowP = new Array(N), rowN = new Array(N);
+    var rr = R * (i/M), t = Math.asin(Math.min(1, i/M));
+    for (var j = 0; j < N; j++){
+      var s = (j/N) * Math.PI*2;
+      rowP[j] = { x: CX + rr*Math.cos(s), y: CY - rr*Math.sin(s) };
+      rowN[j] = [Math.sin(t)*Math.cos(s), Math.sin(t)*Math.sin(s), Math.cos(t)];
+    }
+    P.push(rowP); NM.push(rowN);
+  }
+  return { P: P, N: N, M: M };
+}
+
+/* ---------- 画面座標から場を引く ----------
+   可視半球は画面の円に 1:1 で写るので、場は画面座標 (x,y) の関数として扱える。
+   これで等値線への投影を「画面上の勾配降下」として素直に書ける。
+*/
+function makeScreenField(v){
+  var field = makeField(v), gam = v.gamma;
+  var F = function(x, y){
+    var dx = (x - CX) / R, dy = (CY - y) / R;
+    var rn = Math.hypot(dx, dy);
+    if (rn > 1) { dx /= rn; dy /= rn; rn = 1; }   // 球の外はシルエット上にクランプ
+    var t = Math.asin(Math.min(1, rn));
+    var s = Math.atan2(dy, dx);
+    var n = [Math.sin(t)*Math.cos(s), Math.sin(t)*Math.sin(s), Math.cos(t)];
+    var f = field(n, dx, dy);
+    if (v.mirror) f = 1 - Math.abs(2*f - 1);   // 往復（三角波）にすると継ぎ目が消える
+    return gam !== 1 ? Math.pow(f, gam) : f;
+  };
+  // 経度は 0 と 1 が地続き（方位角の継ぎ目）。差分を周期 1 で最短にとらないと
+  // 継ぎ目で勾配が爆発して投影が飛ぶ。往復にした場合は連続なので不要。
+  F.periodic = (v.field === 'lon') && !v.mirror;
+  return F;
+}
+
+/* 頂点を等値線 f = level の上へ寄せる（画面上での 1 回のニュートン投影）。
+   これをやらないとバンドの境界がセル単位の階段になる。 */
+function projectToLevel(p, F, level, maxMove){
+  var h = 0.6;
+  // シルエット（球の縁）上の点は動かさない。ここを寄せると円弧が等値線に潰れて
+  // 輪郭が三角形になる（領域が縁で閉じるとき、縁は等値線ではなく境界だから）。
+  if (Math.hypot(p.x-CX, p.y-CY) >= R - 0.001) return p;
+  var wd = F.periodic ? function(d){ return d - Math.round(d); } : function(d){ return d; };
+  for (var it = 0; it < 2; it++){
+    var f0 = F(p.x, p.y);
+    var gx = wd(F(p.x+h, p.y) - F(p.x-h, p.y)) / (2*h);
+    var gy = wd(F(p.x, p.y+h) - F(p.x, p.y-h)) / (2*h);
+    var g2 = gx*gx + gy*gy;
+    if (g2 < 1e-12) break;
+    var k = wd(level - f0) / g2;
+    // 移動量がセル 1 個分を大きく超えるなら、それは近傍の等値線ではない
+    // （経度の場の極のように勾配が消える特異点で起きる）。動かさない方が安全。
+    if (Math.abs(k) * Math.sqrt(g2) > maxMove) break;
+    var nx = p.x + k*gx, ny = p.y + k*gy;
+    // 球の外へ出たらシルエット円上に戻す
+    var dx = nx - CX, dy = ny - CY, d = Math.hypot(dx, dy);
+    if (d > R) { nx = CX + dx/d*R; ny = CY + dy/d*R; }
+    if (!isFinite(nx) || !isFinite(ny)) break;
+    p = { x: nx, y: ny };
+  }
+  return p;
+}
+
+/* ---------- レベルセット {f >= level} の輪郭追跡 ----------
+   バンドを個別に切り出すのではなく、包含関係にある領域を大きい順に重ね塗りする。
+   {f>=level} は level が上がるほど必ず小さくなるので、どんな場でも入れ子が保証される。
+   境界エッジだけを集めてループに繋ぐ。中心（i=0）は 1 点に縮退するので単一 ID に潰す。
+*/
+function cellField(g, F){
+  var M = g.M, N = g.N, cf = [];
+  for (var i = 0; i < M; i++){
+    var row = new Float64Array(N), rr = (i+0.5)/M;
+    for (var j = 0; j < N; j++){
+      var s = ((j+0.5)/N) * Math.PI*2;
+      row[j] = F(CX + R*rr*Math.cos(s), CY - R*rr*Math.sin(s));
+    }
+    cf.push(row);
+  }
+  return cf;
+}
+
+function traceLevel(g, cf, F, level, simplifyEps){
+  var M = g.M, N = g.N, P = g.P;
+  var inSet = function(i, j){
+    if (i < 0 || i >= M) return false;
+    return cf[i][((j % N) + N) % N] >= level;
+  };
+  var vid = function(i, j){ return i === 0 ? -1 : i*(N+1) + (((j % N) + N) % N); };
+  var pos = function(i, j){ return P[i][((j % N) + N) % N]; };
+
+  var edges = new Map();
+  var add = function(ai, aj, bi, bj){
+    var va = vid(ai,aj), vb = vid(bi,bj); if (va === vb) return;
+    var k = va < vb ? va+'|'+vb : vb+'|'+va;
+    if (!edges.has(k)) edges.set(k, [va, vb, pos(ai,aj), pos(bi,bj)]);
+  };
+  for (var i = 0; i < M; i++) for (var j = 0; j < N; j++){
+    if (!inSet(i,j)) continue;
+    if (!inSet(i+1,j))  add(i+1, j, i+1, j+1);   // 外側の辺
+    if (!inSet(i-1,j))  add(i,   j, i,   j+1);   // 内側の辺（i=0 は縮退して消える）
+    if (!inSet(i,j-1))  add(i,   j, i+1, j);     // 方位まわりの辺
+    if (!inSet(i,j+1))  add(i, j+1, i+1, j+1);
+  }
+  var adj = new Map(), posOf = new Map();
+  edges.forEach(function(e){
+    var va = e[0], vb = e[1];
+    if (!adj.has(va)) adj.set(va, []); adj.get(va).push(vb);
+    if (!adj.has(vb)) adj.set(vb, []); adj.get(vb).push(va);
+    posOf.set(va, e[2]); posOf.set(vb, e[3]);
+  });
+  var used = new Set(), loops = [];
+  edges.forEach(function(e, k0){
+    if (used.has(k0)) return;
+    used.add(k0);
+    var loop = [e[0], e[1]], cur = e[1], start = e[0], guard = 0;
+    while (guard++ < 400000){
+      var nbrs = adj.get(cur) || [], nxt = null;
+      for (var q = 0; q < nbrs.length; q++){
+        var n2 = nbrs[q], k = cur < n2 ? cur+'|'+n2 : n2+'|'+cur;
+        if (!used.has(k)) { nxt = n2; used.add(k); break; }
+      }
+      if (nxt === null || nxt === start) break;
+      loop.push(nxt); cur = nxt;
+    }
+    if (loop.length >= 3) loops.push(loop.map(function(id){ return posOf.get(id); }).filter(Boolean));
+  });
+  // セル境界のままだと階段になるので、各頂点を等値線 f = level 上へ寄せる
+  var maxMove = 1.4 * Math.max(R/M, 2*Math.PI*R/N);
+  return loops.map(function(pts){
+    return simplifyLoop(pts.map(function(p){ return projectToLevel(p, F, level, maxMove); }), simplifyEps);
+  });
+}
+
+/* ---------- 輪郭の間引き（Ramer–Douglas–Peucker） ----------
+   投影後の輪郭は滑らかなので、直線に近いところの点は落としてよい。
+   Illustrator で扱えるアンカー数（1 段あたり数十）に落とすのが目的。
+*/
+function segDist(p, a, b){
+  var vx = b.x-a.x, vy = b.y-a.y, wx = p.x-a.x, wy = p.y-a.y;
+  var L2 = vx*vx + vy*vy;
+  var t = L2 > 0 ? Math.max(0, Math.min(1, (wx*vx + wy*vy)/L2)) : 0;
+  return Math.hypot(wx - t*vx, wy - t*vy);
+}
+function rdp(pts, eps){
+  if (pts.length < 3) return pts.slice();
+  var a = pts[0], b = pts[pts.length-1], maxD = -1, idx = -1;
+  for (var i = 1; i < pts.length-1; i++){
+    var d = segDist(pts[i], a, b);
+    if (d > maxD) { maxD = d; idx = i; }
+  }
+  if (maxD > eps){
+    return rdp(pts.slice(0, idx+1), eps).slice(0, -1).concat(rdp(pts.slice(idx), eps));
+  }
+  return [a, b];
+}
+function simplifyLoop(pts, eps){
+  if (eps <= 0 || pts.length < 8) return pts;
+  var open = pts.concat([pts[0]]);          // 閉ループを開曲線として扱う
+  var keep = rdp(open, eps);
+  keep.pop();
+  return keep.length >= 3 ? keep : pts;
+}
+
+function loopsToPath(loops, smooth){
+  var d = '';
+  for (var q = 0; q < loops.length; q++){
+    var pts = loops[q]; if (pts.length < 3) continue;
+    if (smooth){
+      var n = pts.length;
+      d += 'M' + pts[0].x.toFixed(2) + ' ' + pts[0].y.toFixed(2);
+      for (var i = 0; i < n; i++){
+        var p0 = pts[(i-1+n)%n], p1 = pts[i], p2 = pts[(i+1)%n], p3 = pts[(i+2)%n];
+        d += 'C' + (p1.x+(p2.x-p0.x)/6).toFixed(2) + ' ' + (p1.y+(p2.y-p0.y)/6).toFixed(2)
+           + ' ' + (p2.x-(p3.x-p1.x)/6).toFixed(2) + ' ' + (p2.y-(p3.y-p1.y)/6).toFixed(2)
+           + ' ' + p2.x.toFixed(2) + ' ' + p2.y.toFixed(2);
+      }
+      d += 'Z';
+    } else {
+      d += 'M' + pts.map(function(p){ return p.x.toFixed(2)+' '+p.y.toFixed(2); }).join('L') + 'Z';
+    }
+  }
+  return d;
+}
+
+/* ---------- SVG 組み立て ---------- */
+var lastStats = { paths: 0, anchors: 0 };
+
+function buildMarkup(v){
+  var g = buildGrid(v);
+  var F = makeScreenField(v);
+  var cf = cellField(g, F);
+  var body = [], nPaths = 0, nAnch = 0;
+  var col = function(k){ return mixColor(v.c1, v.c2, v.steps === 1 ? 0.5 : k/(v.steps-1), v.space); };
+
+  // 最下段の色で球全体を塗り、その上に {f >= level} を小さくなる順に重ねる。
+  // レベルセットは必ず入れ子になるので、バンドを引き算せずに正しい段彩になる。
+  if (v.render !== 'contour'){
+    body.push('<circle cx="'+CX+'" cy="'+CY+'" r="'+R+'" fill="'+col(0)+'"/>');
+    nPaths++;
+  }
+
+  for (var k = 1; k < v.steps; k++){
+    var level = k / v.steps;
+    var loops = traceLevel(g, cf, F, level, v.simplify);
+    if (!loops.length) continue;
+    var d = loopsToPath(loops, v.smooth);
+    if (!d) continue;
+    if (v.render === 'contour'){
+      body.push('<path d="'+d+'" fill="none" stroke="'+v.c2+'" stroke-width="1.2"/>');
+    } else {
+      body.push('<path d="'+d+'" fill="'+col(k)+'" fill-rule="evenodd"/>');
+    }
+    nPaths++; nAnch += (d.match(/[CLM]/g) || []).length;
+  }
+
+  if (v.silhouette){
+    body.push('<circle cx="'+CX+'" cy="'+CY+'" r="'+R+'" fill="none" stroke="'+v.c2+'" stroke-width="1.5"/>');
+    nPaths++;
+  }
+  lastStats = { paths: nPaths, anchors: nAnch };
+  return body.join('');
+}
+
+function render(v){
+  document.querySelector('.studio-stage').style.background = v.bg;
+  art.innerHTML = buildMarkup(v);
+  var el = document.getElementById('stat');
+  if (el) el.textContent = lastStats.paths + ' パス / ' + lastStats.anchors + ' アンカー';
+}
+
+/* ---------- 場ぜんぶ一覧 ---------- */
+var FIELD_LABEL = {
+  plane: ['平面（対照）', '球と無関係・画面のグラデ'],
+  shade: ['陰影', '外在的・光との内積'],
+  colat: ['緯度', '内在的・極からの角度'],
+  lon:   ['経度', '内在的・極まわりの方位'],
+  decal: ['デカール', '内在的・経緯度に貼る']
+};
+function openVariants(v){
+  var grid = document.getElementById('vgrid');
+  grid.innerHTML = '';
+  ['plane','shade','colat','lon','decal'].forEach(function(f){
+    var tmp = {}; for (var k in v) tmp[k] = v[k];
+    tmp.field = f; tmp.rad = Math.min(v.rad, 48); tmp.seg = Math.min(v.seg, 96);
+    var cell = document.createElement('div');
+    cell.className = 'vcell';
+    cell.innerHTML = '<svg viewBox="0 0 640 640" xmlns="http://www.w3.org/2000/svg" '
+      + 'style="background:'+v.bg+'">' + buildMarkup(tmp) + '</svg>'
+      + '<b>' + FIELD_LABEL[f][0] + '</b><span>' + FIELD_LABEL[f][1] + '</span>';
+    cell.onclick = function(){ values.set('field', f); closeVariants(); };
+    grid.appendChild(cell);
+  });
+  document.getElementById('vmodal').classList.add('open');
+  render(v); // 一覧生成で lastStats を汚したので本体を描き直す
+}
+function closeVariants(){ document.getElementById('vmodal').classList.remove('open'); }
+document.getElementById('vclose').onclick = closeVariants;
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') closeVariants();
+  if (e.key === 'v' || e.key === 'V') openVariants(values);
+});
+
+/* ---------- パネル ---------- */
+var values = Studio.panel('#panel', [
+  { type: 'group', label: '場（何を沿わせるか）' },
+  { type: 'select', key: 'field', label: '場の種類', value: 'shade', options: [
+      { value: 'plane', label: '平面（対照・沿っていない）' },
+      { value: 'shade', label: '陰影（光との内積）' },
+      { value: 'colat', label: '緯度（極からの角度）' },
+      { value: 'lon',   label: '経度（極まわりの方位）' },
+      { value: 'decal', label: 'デカール（経緯度に貼る）' } ] },
+  { type: 'range', key: 'axisAz', label: '極 方位', min: -180, max: 180, step: 1, value: 25 },
+  { type: 'range', key: 'axisEl', label: '極 仰角', min: -90, max: 90, step: 1, value: 55 },
+  { type: 'range', key: 'lightAz', label: '光 方位', min: -180, max: 180, step: 1, value: -35 },
+  { type: 'range', key: 'lightEl', label: '光 仰角', min: -90, max: 90, step: 1, value: 40 },
+  { type: 'range', key: 'planeAngle', label: '角度（平面・デカール）', min: 0, max: 360, step: 1, value: 90 },
+
+  { type: 'group', label: '帯（どう描くか）' },
+  { type: 'toggle', key: 'render', label: '描画', value: 'bands', options: [
+      { value: 'bands', label: '帯で塗る' }, { value: 'contour', label: '等値線だけ' } ] },
+  { type: 'range', key: 'steps', label: '段数', min: 2, max: 48, step: 1, value: 12 },
+  { type: 'range', key: 'gamma', label: 'イージング', min: 0.3, max: 3, step: 0.05, value: 1, decimals: 2 },
+  { type: 'checkbox', key: 'mirror', label: '往復（継ぎ目を消す）', value: false },
+  { type: 'checkbox', key: 'smooth', label: '輪郭をなめらかに', value: true },
+  { type: 'range', key: 'simplify', label: '間引き（px）', min: 0, max: 3, step: 0.1, value: 0.8, decimals: 1 },
+  { type: 'checkbox', key: 'silhouette', label: '球の輪郭線', value: false },
+  { type: 'range', key: 'rad', label: '分割（半径）', min: 8, max: 120, step: 1, value: 56 },
+  { type: 'range', key: 'seg', label: '分割（方位）', min: 12, max: 240, step: 4, value: 144 },
+
+  { type: 'group', label: '色' },
+  { type: 'color', key: 'c1', label: '色 1', value: '#48A099' },
+  { type: 'color', key: 'c2', label: '色 2', value: '#285A39' },
+  { type: 'toggle', key: 'space', label: '補間', value: 'oklab', options: [
+      { value: 'oklab', label: 'OKLab' }, { value: 'srgb', label: 'sRGB' } ] },
+  { type: 'color', key: 'bg', label: '背景', value: '#FAF8F2' },
+
+  { type: 'group', label: '確認・書き出し' },
+  { type: 'button', label: '場の一覧（V）', onClick: function(v){ openVariants(v); } },
+  { type: 'button', label: 'SVG書き出し', primary: true, onClick: function(v){
+      Studio.exportSVG(art, { name: 'sphere-field_' + v.field + '_' + v.steps, background: v.bg }); } },
+  { type: 'button', label: 'PNG書き出し（×2）', onClick: function(v){
+      Studio.exportPNG(art, { name: 'sphere-field_' + v.field, scale: 2, bg: v.bg }); } }
+], render);
+
+// パス数の表示欄をパネル末尾に足す（定型でない UI は生 DOM で足す = kit の二層設計）
+var statEl = document.createElement('p');
+statEl.className = 'stat'; statEl.id = 'stat';
+document.getElementById('panel').appendChild(statEl);
+render(values);
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

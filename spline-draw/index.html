@@ -1,0 +1,2957 @@
+<!doctype html>
+<html data-sm-build="6ff6c13・2026-10-28 09:33" data-sm-app="spline-draw" lang="ja" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="スプライン">
+<meta name="theme-color" content="#ffffff">
+<meta name="studio-spec" content="type:描いて増やす">
+<title>スプライン描画</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="_ext/000_kit/studio-tokens.css?v=0.7.8">
+<style>
+/* ── Serendie Design System / design token（135_放射パターン v2.1 が正典） ── */
+:root{
+  /* 色と文字は 000_kit/studio-tokens.css（--t-*）に従う（006 §6 非kit UI）。骨格（右パネル・道具の並び）は独自 */
+  --surface:var(--t-paper);
+  --surfaceContainer:#FAFAFA;
+  --surfaceContainerDim:#F5F5F5;
+  --surfaceDim:var(--t-stage);
+  --onSurface:var(--t-ink);
+  --onSurfaceVariant:var(--t-muted);
+  --outline:#D1D0CD;
+  --outlineBright:var(--t-hair);
+  --outlineDim:#8C8B87;
+  --primary:var(--t-ink);
+  --onPrimary:#FFFFFF;
+  --hovered:#0000000D;
+  --disabled:#F0F0F0;
+
+  --sp-2xs:4px; --sp-xs:8px; --sp-s:12px; --sp-m:16px; --sp-l:20px; --sp-xl:24px;
+  --r-xs:2px; --r-s:var(--t-radius); --r-m:8px; --r-full:9999px;
+  --bd:var(--t-line);
+
+  --pad:16px;
+
+  --font:"Noto Sans JP",-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+[data-theme="dark"]{
+  --surface:#141414;
+  --surfaceContainer:#2E2E2E;
+  --surfaceContainerDim:#474747;
+  --surfaceDim:#141414;
+  --onSurface:#E4E4E3;
+  --onSurfaceVariant:#B1B0AE;
+  --outline:#575757;
+  --outlineBright:#424242;
+  --outlineDim:#8C8B87;
+  --primary:#C0CFFD;
+  --onPrimary:#000000;
+  --hovered:#FFFFFF0D;
+  --disabled:#31312F;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:var(--surfaceDim);color:var(--onSurface);
+  font:400 13px/1.6 var(--font);
+  -webkit-font-smoothing:antialiased;overflow:hidden;overscroll-behavior:none;
+  display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:var(--r-xs)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* ── app bar（書き出しはここに集約。006_ツールの規格 §6） ─────────── */
+[hidden]{display:none!important}
+#bar{
+  flex:0 0 auto;height:var(--t-bar-h,52px);display:flex;align-items:center;gap:var(--sp-s);
+  padding:0 var(--sp-m);background:var(--surface);
+  border-bottom:var(--bd) solid var(--outline);
+}
+#bar .name{font:var(--t-w-name,700) var(--t-fs-name,14px)/1.6 var(--font);white-space:nowrap}
+#bar .sub{font:400 12px/1 var(--font);color:var(--onSurfaceVariant);white-space:nowrap}
+#bar .fill{flex:1}
+#bar .sep{width:var(--bd);height:24px;background:var(--outline);flex:0 0 auto}
+.btn{
+  height:var(--t-btn-h,32px);padding:0 var(--sp-s);border-radius:var(--r-s);
+  border:var(--bd) solid var(--outline);background:var(--surface);color:var(--onSurface);
+  font:var(--t-w-btn,400) var(--t-fs-btn,12px)/1 var(--font);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.btn:hover{background:var(--hovered)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn:disabled:hover{background:var(--surface)}
+.btn.primary{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.btn.primary:hover{opacity:.88}
+.btn kbd{font:400 10px/1 var(--mono);color:var(--onSurfaceVariant);border:var(--bd) solid var(--outline);border-radius:var(--r-xs);padding:2px 3px}
+.btn.primary kbd{color:var(--onPrimary);border-color:currentColor;opacity:.7}
+
+/* ── layout（139固有: キャンバス全面。#board は使わない） ──────────── */
+#main{flex:1 1 auto;display:flex;min-height:0}
+#stage{flex:1;position:relative;min-width:0;padding:0;background:#fff}
+#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+
+#panel{
+  width:308px;flex:0 0 308px;background:var(--surface);
+  border-left:var(--bd) solid var(--outline);overflow-y:auto;overscroll-behavior:contain;
+}
+#panel::-webkit-scrollbar{width:10px}
+#panel::-webkit-scrollbar-thumb{background:var(--outlineBright);border-radius:var(--r-full);border:3px solid var(--surface)}
+
+/* ── section ─────────────────────────────────────────────────────────── */
+.sec{padding:var(--pad) var(--sp-m);border-bottom:var(--bd) solid var(--outlineBright)}
+.sec > h2{font:700 11px/1 var(--font);color:var(--onSurfaceVariant);margin-bottom:var(--sp-xs);letter-spacing:.08em}
+.sec > summary{font:700 11px/1 var(--font);color:var(--onSurfaceVariant);margin-bottom:var(--sp-xs);letter-spacing:.08em;cursor:pointer}
+.sec.off{display:none}
+
+/* chips（トグル・切り替え・道具。ボタンの列としても流用する） */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  height:28px;padding:0 10px;border-radius:var(--r-full);
+  border:var(--bd) solid var(--outline);background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--font);cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+}
+.chip:hover{background:var(--hovered)}
+.chip[aria-pressed="true"]{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.chip:disabled{opacity:.35;cursor:default}
+.chip kbd{font:400 10px/1 var(--mono);color:var(--onSurfaceVariant);border:var(--bd) solid var(--outline);border-radius:var(--r-xs);padding:1px 3px}
+.chip[aria-pressed="true"] kbd{color:var(--onPrimary);border-color:currentColor;opacity:.7}
+
+/* control row */
+.f{margin-bottom:var(--pad)}
+.f:last-child{margin-bottom:0}
+.f.off{display:none}
+.f .top{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-xs)}
+.f label{font:400 12px/1.4 var(--font);color:var(--onSurfaceVariant);cursor:ew-resize;user-select:none}
+.f .num{display:flex;align-items:center;gap:3px}
+.f input.n{
+  width:54px;height:24px;text-align:right;
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);
+  background:var(--surface);color:var(--onSurface);
+  font:400 12px/1 var(--mono);font-variant-numeric:tabular-nums;
+  padding:0 5px;
+}
+.f input.n:focus{border-color:var(--primary);outline:none}
+.f .unit{font:400 11px/1 var(--font);color:var(--onSurfaceVariant);width:14px}
+
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;cursor:pointer;display:block}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--outline);border-radius:var(--r-full)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:var(--r-full);
+  background:var(--primary);border:none;margin-top:-5.5px;
+}
+input[type=range]::-moz-range-track{height:2px;background:var(--outline);border-radius:var(--r-full)}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:var(--r-full);background:var(--primary)}
+
+select{
+  width:100%;height:30px;padding:0 var(--sp-xs);
+  border:var(--bd) solid var(--outline);border-radius:var(--r-s);
+  background:var(--surface);color:var(--onSurface);font:400 12px/1 var(--font);cursor:pointer;
+}
+select:focus{border-color:var(--primary);outline:none}
+
+.hint{font:400 11px/1.5 var(--font);color:var(--onSurfaceVariant);margin-top:var(--sp-xs)}
+
+/* readout（旧: キャンバス左下に重なっていた状態表示。ここへ集約） */
+#info{padding:var(--pad) var(--sp-m);background:var(--surfaceContainer)}
+#info dl{display:grid;grid-template-columns:1fr auto;gap:2px var(--sp-s)}
+#info dt{font:400 11px/1.5 var(--font);color:var(--onSurfaceVariant)}
+#info dd{font:400 11px/1.5 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+
+/* toast（Studio.toast が使う。結果と失敗だけを出す） */
+#toast{
+  position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);z-index:40;
+  max-width:min(92vw,560px);
+  padding:10px var(--sp-m);border-radius:var(--r-s);
+  background:var(--onSurface);color:var(--surface);
+  font:400 12px/1.5 var(--mono);opacity:0;pointer-events:none;transition:opacity .16s,transform .16s;
+}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{background:#B4342A;color:#fff}
+#toast.sticky.on{pointer-events:auto}
+#toast .toast-close{margin-left:var(--sp-s);height:24px;padding:0 var(--sp-xs);border:var(--bd) solid currentColor;border-radius:var(--r-s);background:transparent;color:inherit;font:inherit;cursor:pointer}
+
+/* Studio.stageBar / appBar が足す部品（studio2.css は読まない非kit UI のため、見た目だけ自前で定義） */
+.cmn{display:flex;align-items:center;gap:6px}
+.cmn>*{flex:none}
+.cmn-colors{margin-left:var(--sp-xs)}
+.cswatch{width:var(--t-btn-h,32px);height:var(--t-btn-h,32px);border:var(--bd) solid var(--onSurface);border-radius:var(--r-s);background:var(--surface);padding:3px;cursor:pointer}
+.cswatch-fill{display:block;width:100%;height:100%;border-radius:1px;background:#fff}
+.cswatch.none .cswatch-fill{background:repeating-conic-gradient(#ccc 0 25%,#fff 0 50%) 0 0/8px 8px}
+.cswatch[aria-pressed="true"]{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--onSurface)}
+.cpop{position:fixed;z-index:30;background:var(--surface);border:var(--bd) solid var(--outline);border-radius:var(--r-m);box-shadow:0 4px 16px rgba(0,0,0,.15);padding:10px;display:flex;flex-direction:column;gap:8px;width:220px}
+.cpop-row{display:flex;align-items:center;gap:6px}
+.cpop-row input[type=color]{width:32px;height:32px;border:var(--bd) solid var(--onSurface);border-radius:var(--r-s);padding:2px;background:var(--surface);cursor:pointer}
+.cpop-hex{flex:1;min-width:0;height:32px;border:var(--bd) solid var(--outline);border-radius:var(--r-s);background:var(--surface);padding:0 6px;font:12px var(--mono);color:var(--onSurface)}
+.cpop select{height:32px}
+.cpop-swatches{display:flex;flex-wrap:wrap;gap:6px}
+.cpop-swatches button{width:28px;height:28px;padding:0;border-radius:var(--r-s);border:var(--bd) solid var(--outline);cursor:pointer}
+.cpop-swatches button:hover{outline:2px solid var(--onSurface);outline-offset:1px}
+.btn[aria-pressed="true"]{background:var(--primary);color:var(--onPrimary);border-color:var(--primary)}
+.sb-dlg-backdrop{position:fixed;inset:0;background:rgba(10,10,10,.3);z-index:35;display:flex;align-items:center;justify-content:center}
+.sb-dlg{background:var(--surface);border-radius:var(--r-m);padding:20px;width:280px;display:flex;flex-direction:column;gap:12px}
+
+/* タップ領域: 900px未満・指で触る端末（iPad の横置きを含む）は押しやすい高さへ */
+@media (max-width:900px), (pointer:coarse){
+  :root{--t-btn-h:44px}
+  .btn{height:44px}
+  .chip{height:44px}
+  .cswatch{width:44px;height:44px}
+  .f input.n{height:36px;width:64px}
+  select{height:44px}
+  .cpop select{height:44px}
+  .cpop-row input[type=color]{width:44px;height:44px}
+  .cpop-hex{height:44px}
+  .cpop-swatches button{width:40px;height:40px}
+}
+
+/* 正式対応幅は 1024px 以上（006 §6）。それ未満は縮退表示: パネルを下へ積み、バーは折り返す */
+@media (max-width:1023px){
+  body{overflow:auto}
+  #main{flex-direction:column}
+  #stage{min-height:50vh}
+  #panel{width:100%;flex:none;border-left:none;border-top:var(--bd) solid var(--outline)}
+  #bar{flex-wrap:wrap;height:auto;min-height:52px;padding:var(--sp-xs) var(--sp-s);row-gap:var(--sp-2xs)}
+  #bar .sep{display:none}
+}
+</style>
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=84a22e17">
+</head>
+<body>
+
+<header id="bar"></header>
+
+<div id="main">
+  <div id="stage"><canvas id="cv"></canvas></div>
+
+  <aside id="panel">
+
+    <section class="sec">
+      <h2 title="空白ドラッグ・2本指スクロール＝画面移動／ピンチ＝拡大縮小／Esc＝パスを終える">道具</h2>
+      <div class="chips">
+        <button class="chip" data-tool="select" aria-pressed="false">選択 <kbd>V</kbd></button>
+        <button class="chip" data-tool="direct" aria-pressed="false">ダイレクト選択 <kbd>A</kbd></button>
+        <button class="chip" data-tool="pen" aria-pressed="true">ペン <kbd>P</kbd></button>
+        <button class="chip" data-tool="pencil" aria-pressed="false">鉛筆 <kbd>N</kbd></button>
+        <button class="chip" data-tool="rect" aria-pressed="false">長方形 <kbd>M</kbd></button>
+        <button class="chip" data-tool="ellipse" aria-pressed="false">楕円形 <kbd>L</kbd></button>
+        <button class="chip" data-tool="poly" aria-pressed="false">多角形</button>
+        <button class="chip" data-tool="rotate" aria-pressed="false">回転 <kbd>R</kbd></button>
+        <button class="chip" data-tool="shapebuild" aria-pressed="false">シェイプ形成 <kbd>⇧M</kbd></button>
+      </div>
+    </section>
+
+    <section class="sec off" id="secToolOpt">
+      <h2>道具の設定</h2>
+      <div class="f off" id="fRowSides">
+        <div class="top">
+          <label for="c-fSides" title="左右にドラッグ ／ ダブルクリックで既定値">辺の数</label>
+          <span class="num"><input class="n" id="n-fSides" inputmode="numeric" aria-label="辺の数"><span class="unit">個</span></span>
+        </div>
+        <input type="range" id="c-fSides" min="3" max="24" step="1" value="6" aria-label="辺の数">
+      </div>
+      <div class="f off" id="fRowPencilTol">
+        <div class="top">
+          <label for="c-fPencilTol" title="左右にドラッグ ／ ダブルクリックで既定値">許容誤差</label>
+          <span class="num"><input class="n" id="n-fPencilTol" inputmode="decimal" aria-label="許容誤差"><span class="unit">px</span></span>
+        </div>
+        <input type="range" id="c-fPencilTol" min="0.5" max="20" step="0.5" value="5" aria-label="許容誤差">
+      </div>
+      <div class="off" id="fRowShape">
+        <div class="chips">
+          <button class="chip" data-shapemode="join" aria-pressed="true" id="shapeModeJoin" title="面をクリックすると結合する印が付く。Option＋クリックで消す印。同じ面をもう一度クリックすると印が外れる">クリックした面を結合する</button>
+          <button class="chip" data-shapemode="del" aria-pressed="false" id="shapeModeDel" title="面をクリックすると消す印が付く。Option＋クリックで結合する印。同じ面をもう一度クリックすると印が外れる">クリックした面を消す</button>
+        </div>
+        <p class="hint" id="shapeInfo" style="font-variant-numeric:tabular-nums"></p>
+        <div class="chips" style="margin-top:var(--sp-xs)">
+          <button class="btn primary" id="bShapeApply">この分け方で確定</button>
+          <button class="btn" id="bShapeReset">印を全部外す</button>
+        </div>
+      </div>
+      <div class="f off" id="fRowRotAngle">
+        <div class="top">
+          <label for="n-fRotAngle" title="左右にドラッグ ／ ダブルクリックで既定値。適用すると0に戻ります">角度</label>
+          <span class="num"><input class="n" id="n-fRotAngle" inputmode="decimal" aria-label="角度"><span class="unit">°</span></span>
+        </div>
+        <div class="chips" style="margin-top:var(--sp-xs)">
+          <button class="btn" id="rotCenterSel">選択の中心へ</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h2>グリッド <span id="gthin" style="font-weight:400;font-size:11px;opacity:.7"></span></h2>
+      <div class="chips">
+        <button class="chip" id="bGrid" aria-pressed="true">グリッド</button>
+        <button class="chip" id="bSnap" aria-pressed="true">スナップ</button>
+      </div>
+      <div class="f" style="margin-top:var(--pad)">
+        <div class="top">
+          <label for="c-fStep" title="左右にドラッグ ／ ダブルクリックで既定値">間隔</label>
+          <span class="num"><input class="n" id="n-fStep" inputmode="numeric" aria-label="グリッドの間隔"><span class="unit">mm</span></span>
+        </div>
+        <input type="range" id="c-fStep" min="0.5" max="70" step="0.5" value="1" aria-label="グリッドの間隔">
+      </div>
+      <div class="f">
+        <div class="top"><label for="gKind">種類</label></div>
+        <select id="gKind" aria-label="グリッドの種類"></select>
+      </div>
+      <div class="f" id="wRatio">
+        <div class="top">
+          <label for="c-nRatio" title="左右にドラッグ ／ ダブルクリックで既定値">比率</label>
+          <span class="num"><input class="n" id="n-nRatio" inputmode="decimal" aria-label="比率"><span class="unit">×</span></span>
+        </div>
+        <input type="range" id="c-nRatio" min="1.05" max="2.5" step="0.01" value="1.62" aria-label="比率">
+      </div>
+      <div class="f" id="wDiv">
+        <div class="top">
+          <label for="c-nDiv" title="左右にドラッグ ／ ダブルクリックで既定値">分割</label>
+          <span class="num"><input class="n" id="n-nDiv" inputmode="numeric" aria-label="分割"><span class="unit">本</span></span>
+        </div>
+        <input type="range" id="c-nDiv" min="3" max="48" step="1" value="12" aria-label="分割">
+      </div>
+      <div class="f">
+        <div class="top">
+          <label for="n-nCx" title="左右にドラッグ ／ ダブルクリックで既定値">中心X</label>
+          <span class="num"><input class="n" id="n-nCx" inputmode="decimal" aria-label="中心X"><span class="unit">px</span></span>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top">
+          <label for="n-nCy" title="左右にドラッグ ／ ダブルクリックで既定値">中心Y</label>
+          <span class="num"><input class="n" id="n-nCy" inputmode="decimal" aria-label="中心Y"><span class="unit">px</span></span>
+        </div>
+      </div>
+      <div class="chips">
+        <button class="btn" id="gCenterSel">選択の中心へ</button>
+        <button class="btn primary" id="gApply">選択した点を吸着</button>
+      </div>
+    </section>
+
+    <section class="sec off" id="secSel">
+      <h2>選択中の点</h2>
+      <div class="f">
+        <div class="top"><label>点の種類</label></div>
+        <div class="chips" id="segMode">
+          <button class="chip" data-v="spline" aria-pressed="true">Bスプライン</button>
+          <button class="chip" data-v="bezier" aria-pressed="false">ベジェ</button>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top"><label>ハンドル</label></div>
+        <div class="chips" id="segLink">
+          <button class="chip" data-v="smooth" aria-pressed="true">連結</button>
+          <button class="chip" data-v="broken" aria-pressed="false">分割</button>
+        </div>
+      </div>
+      <div class="f off" id="fRowX">
+        <div class="top">
+          <label for="n-fX" title="左右にドラッグ ／ ダブルクリックで既定値">X</label>
+          <span class="num"><input class="n" id="n-fX" inputmode="decimal" aria-label="X"><span class="unit">px</span></span>
+        </div>
+      </div>
+      <div class="f off" id="fRowY">
+        <div class="top">
+          <label for="n-fY" title="左右にドラッグ ／ ダブルクリックで既定値">Y</label>
+          <span class="num"><input class="n" id="n-fY" inputmode="decimal" aria-label="Y"><span class="unit">px</span></span>
+        </div>
+      </div>
+      <div class="chips">
+        <button class="btn" id="bDel">削除</button>
+        <button class="btn" id="bCut">カット</button>
+        <button class="btn" id="bJoin">連結 <kbd>⌘J</kbd></button>
+        <button class="btn" id="bSimplify">単純化</button>
+      </div>
+    </section>
+
+    <details class="sec">
+      <summary>点の関係</summary>
+      <div class="f">
+        <div class="top"><label>分布</label></div>
+        <div class="chips" id="segRelMode">
+          <button class="chip" data-v="even" aria-pressed="true">等間隔</button>
+          <button class="chip" data-v="geom" aria-pressed="false">等比</button>
+          <button class="chip" data-v="alt" aria-pressed="false">交互</button>
+        </div>
+      </div>
+      <div class="f" id="wRelRatio">
+        <div class="top">
+          <label for="c-nRelRatio" title="左右にドラッグ ／ ダブルクリックで既定値">比率</label>
+          <span class="num"><input class="n" id="n-nRelRatio" inputmode="decimal" aria-label="比率"><span class="unit">×</span></span>
+        </div>
+        <input type="range" id="c-nRelRatio" min="1.1" max="3" step="0.01" value="1.62" aria-label="比率">
+      </div>
+      <div class="chips" style="margin-bottom:var(--pad)">
+        <button class="btn primary" id="relSpace">分布</button>
+      </div>
+      <div class="f">
+        <div class="top"><label>角度</label></div>
+        <div class="chips" id="segRelAng">
+          <button class="chip" data-v="90" aria-pressed="false">90°</button>
+          <button class="chip" data-v="45" aria-pressed="true">45°</button>
+          <button class="chip" data-v="30" aria-pressed="false">30°</button>
+          <button class="chip" data-v="15" aria-pressed="false">15°</button>
+        </div>
+      </div>
+      <div class="chips">
+        <button class="btn primary" id="relSnapA">角度を制限</button>
+        <button class="btn" id="relTurn">折れ角を統一</button>
+      </div>
+    </details>
+
+    <details class="sec">
+      <summary>パスの生成</summary>
+      <div class="f">
+        <div class="top"><label>配置</label></div>
+        <div class="chips" id="segGenShape">
+          <button class="chip" data-v="circle" aria-pressed="true">円周</button>
+          <button class="chip" data-v="double" aria-pressed="false">二重円</button>
+          <button class="chip" data-v="line" aria-pressed="false">直線</button>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top">
+          <label for="c-nGenN" title="左右にドラッグ ／ ダブルクリックで既定値">点の数</label>
+          <span class="num"><input class="n" id="n-nGenN" inputmode="numeric" aria-label="点の数"><span class="unit">個</span></span>
+        </div>
+        <input type="range" id="c-nGenN" min="3" max="60" step="1" value="7" aria-label="点の数">
+      </div>
+      <div class="f">
+        <div class="top">
+          <label for="c-nGenR" id="lGenR" title="左右にドラッグ ／ ダブルクリックで既定値">半径</label>
+          <span class="num"><input class="n" id="n-nGenR" inputmode="numeric" aria-label="半径"><span class="unit">px</span></span>
+        </div>
+        <input type="range" id="c-nGenR" min="20" max="600" step="1" value="200" aria-label="半径">
+      </div>
+      <div class="f" id="wGenR2">
+        <div class="top">
+          <label for="c-nGenR2" title="左右にドラッグ ／ ダブルクリックで既定値">内半径</label>
+          <span class="num"><input class="n" id="n-nGenR2" inputmode="numeric" aria-label="内半径"><span class="unit">px</span></span>
+        </div>
+        <input type="range" id="c-nGenR2" min="5" max="600" step="1" value="80" aria-label="内半径">
+      </div>
+      <div class="f">
+        <div class="top"><label>繋ぎ方</label></div>
+        <div class="chips" id="segGenRule">
+          <button class="chip" data-v="order" aria-pressed="true">順番</button>
+          <button class="chip" data-v="skip" aria-pressed="false">跳び</button>
+        </div>
+      </div>
+      <div class="f" id="wGenK">
+        <div class="top">
+          <label for="c-nGenK" title="左右にドラッグ ／ ダブルクリックで既定値">跳び</label>
+          <span class="num"><input class="n" id="n-nGenK" inputmode="numeric" aria-label="跳び"><span class="unit"></span></span>
+        </div>
+        <input type="range" id="c-nGenK" min="2" max="20" step="1" value="2" aria-label="跳び">
+      </div>
+      <div class="chips" style="margin-bottom:var(--pad)">
+        <button class="chip" id="gClosed" aria-pressed="true">閉じる</button>
+      </div>
+      <button class="btn primary" id="gGo" style="width:100%;justify-content:center">生成</button>
+    </details>
+
+    <section class="sec">
+      <h2>パス</h2>
+      <div class="chips" style="margin-bottom:var(--pad)">
+        <button class="chip" id="bFill" aria-pressed="false">塗り</button>
+      </div>
+      <div class="chips">
+        <button class="btn" id="bClose">パスを閉じる</button>
+        <button class="btn" id="bBetween" title="開いた2本のパスを選ぶと使える。元のパスは残る">2本のパスの間を閉じて塗る</button>
+        <button class="btn" id="bClear">すべて削除</button>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h2>編集と表示</h2>
+      <div class="chips" style="margin-bottom:var(--pad)">
+        <button class="chip" id="bAnchors" aria-pressed="true">アンカーを表示 <kbd>⌘H</kbd></button>
+      </div>
+      <div class="chips">
+        <button class="btn" id="bAll">すべて選択 <kbd>⌘A</kbd></button>
+        <button class="btn" id="bPaste">ペースト <kbd>⌘V</kbd></button>
+        <button class="btn" id="bFit">全体を表示</button>
+      </div>
+    </section>
+
+    <div id="info">
+      <dl>
+        <dt>道具</dt><dd id="iTool">–</dd>
+        <dt>パス</dt><dd id="iPaths">–</dd>
+        <dt>点</dt><dd id="iPoints">–</dd>
+        <dt>選択</dt><dd id="iSel">–</dd>
+        <dt>グリッド</dt><dd id="iGrid">–</dd>
+      </dl>
+    </div>
+
+  </aside>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- core.js を直したら ?v= を上げる。上げないと古いものが返り続ける -->
+<script src="_ext/000_kit/studio-kit.js?v=0.7.10"></script>
+<script src="core.js?v=9"></script>
+<script src="grid.js?v=2"></script>
+<script src="rules.js?v=1"></script>
+<script src="shape.js?v=1"></script>
+<script>
+'use strict';
+const K = SplineCore;
+if(!K || typeof K.fitOpen!=='function' || !K.fitOpen([{x:0,y:0},{x:10,y:5},{x:20,y:0}],3,{})){
+  document.body.innerHTML='<p style="padding:24px;font:14px/1.7 sans-serif">'+
+    'core.js が古いか壊れています。ハード再読み込みするか index.html の <code>core.js?v=</code> を上げてください。</p>';
+  throw new Error('core.js stale');
+}
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const COARSE = matchMedia('(pointer:coarse)').matches;
+
+/* =========================================================
+   状態
+
+   アンカーは2種類あって、同じパスの中に混ぜられる。
+     spline … ハンドルを持たない。形はBスプラインが決める
+     bezier … ハンドルを持ち、自分で接線を操る
+   境目は「ベジェ側のハンドルを、スプライン区間の端点の接線条件として渡す」で繋ぐ。
+   これで手で操る区間と自動で決まる区間が折れずに地続きになる。
+   ========================================================= */
+const S = {
+  paths: [ {closed:false, fill:false, anchors:[]} ],
+  cur: 0,
+  sel: [],                                   /* [{p,a}] 複数選択 */
+  tool: 'pen',                               /* pen | select | rect | ellipse | poly */
+  sides: 6,
+  /* グリッド＝吸着先の構造そのもの。種類を変えると目の並びが変わり、
+     点はそこへ吸着し、目は画面に描かれる＝どの規則が効いているかが常に見える。
+     「点を規則的な座標に置きたい」が目的なので、規則は吸着先として持つのが素直。
+     （変異＝点を規則で揺らす案は 2026-08-11 に却下。経緯は notes.md） */
+  grid: {on:true, snap:true, kind:'even', mm:1, ratio:1.62, div:12, cx:0, cy:0,
+         /* 間隔は mm で持つ。吸着・描画が読む step は座標単位（px）へ換算した値 */
+         get step(){ return Grid.mmToPx(this.mm); }},
+  show: {anchors:true},
+  /* 作品の色（上部バーの色見本。初期色は規定パレット「紺と白」・006 §5 COLOR-00）。'none' は塗りなし／線なし／背景なし */
+  col: {fill:'#0044CC', stroke:'#0044CC', bg:'#FFFFFF'},
+  outline: false,                            /* ⌘Y: 塗りを消して1pxの輪郭線だけにする表示（書き出しには入れない） */
+  /* 鉛筆の当てはめ許容誤差（画面px比）。既定5px。値が大きいほどアンカーが減る */
+  pencil: {tol: 5},
+  /* 右パネルの数値の表示単位（mm | px）。内部の値・書き出しは常に px のまま、表示と入力だけ換算する */
+  unit: (()=>{ try{ return localStorage.getItem('spline-draw.unit')==='px' ? 'px' : 'mm'; }catch(e){ return 'mm'; } })(),
+  view: {s:1, ox:0, oy:0},
+  /* グリッドの交点だけを置き場にして、規則的な座標の上で図形を探索する機能 */
+  /* 生成＝規則的な配置。置き場所（円周・二重円・直線）も繋ぎ順（順番・跳び）も
+     規則で決める。半径・内半径は px（グリッドの間隔に依存しない絶対値） */
+  gen: {shape:'circle', count:7, range:200, r2:80, k:2, rule:'order', closed:true},
+  /* 点どうしの関係の規則。座標系への規則（grid）と対をなす。
+     既存のアンカー列を、間隔・角度の規則を満たす位置へ動かす */
+  rel: {mode:'even', ratio:1.62, ang:45},
+  /* 回転の中心。選択（無ければ現在のパス）の重心を既定にし、明示的にクリックしたら
+     そこへ移す。sig は「いまの対象が何か」の署名。対象が変わったら重心を取り直す */
+  rot: {cx:0, cy:0, sig:''},
+  /* シェイプ形成。クリックしたとき面に付ける印（結合する／消す）。
+     キーだけにしないため画面のチップでも切り替えられる（Optionは一時的な裏返し） */
+  shape: {mode:'join'}
+};
+let BEZ = [];            /* パスごとの3次ベジェ列 */
+let COMP = [];           /* パスごと・点ごとに、いま曲線が持っている接線（種類を切り替えるとき使う） */
+let SEGMAP = [];         /* パスごと・区間ごとに、その区間が挟むアンカーの組 {a,b}（ペンで曲線上に点を足すとき使う） */
+let LOOPS = [];          /* パスごと：開いた塗りパスだけ、曲線自身の自己交差が作る閉ループ列（無ければ null） */
+let history = [], future = [];
+/* 直前に生成した形。触っていなければ次回は置き換える。
+   跳びで複数の閉路（六芒星=三角形2つ等）ができるので、複数パスを追跡する */
+let genLast = {idxs:[], stamp:''};
+
+const R2 = v => Math.round(v*100)/100;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const toS = w => ({x: w.x*S.view.s + S.view.ox, y: w.y*S.view.s + S.view.oy});
+const toW = (x,y) => ({x: (x-S.view.ox)/S.view.s, y: (y-S.view.oy)/S.view.s});
+function snapXY(w, free){
+  if(!S.grid.snap || free) return {x:R2(w.x), y:R2(w.y)};
+  const q = Grid.snapPoint(w, S.grid);
+  return {x:R2(q.x), y:R2(q.y)};
+}
+const selHas = (p,a) => S.sel.some(s=>s.p===p && s.a===a);
+const oneSel = () => S.sel.length===1 ? S.sel[0] : null;
+function anchorAt(s){ return S.paths[s.p] && S.paths[s.p].anchors[s.a]; }
+
+/* ---- 履歴 ---- */
+function snap_(){
+  history.push(JSON.stringify({paths:S.paths, cur:S.cur}));
+  if(history.length>80) history.shift();
+  future.length = 0; syncBar();
+}
+function restore(str){
+  const o = JSON.parse(str);
+  S.paths = o.paths; S.cur = Math.min(o.cur, S.paths.length-1); S.sel = [];
+  build();
+  render(); syncInsp(); syncBar();
+}
+function undo(){ if(!history.length) return;
+  future.push(JSON.stringify({paths:S.paths, cur:S.cur})); restore(history.pop()); }
+function redo(){ if(!future.length) return;
+  history.push(JSON.stringify({paths:S.paths, cur:S.cur})); restore(future.pop()); }
+
+/* =========================================================
+   パス → 3次ベジェ列
+   ========================================================= */
+function mkAnchor(x,y,mode){
+  return {x:R2(x), y:R2(y), mode:mode||'spline', hi:null, ho:null, brk:false};
+}
+function seg(p0,c1,c2,p1){ return {p0:{x:p0.x,y:p0.y}, c1:{x:c1.x,y:c1.y},
+                                   c2:{x:c2.x,y:c2.y}, p1:{x:p1.x,y:p1.y}}; }
+
+function pathBeziers(path, comp, segmap){
+  const A = path.anchors, n = A.length;
+  if(comp) { comp.length = 0; for(let i=0;i<n;i++) comp.push({hi:null, ho:null}); }
+  if(segmap) segmap.length = 0;
+  if(n < 2) return [];
+  const hard = [];
+  for(let i=0;i<n;i++) if(A[i].mode==='bezier') hard.push(i);
+
+  /* 全部スプライン。閉じていれば周期、開いていれば両端は自然条件 */
+  if(!hard.length){
+    const D = A.map(a=>({x:a.x,y:a.y}));
+    const f = path.closed ? K.fitClosed(D,3) : K.fitOpen(D,3,{});
+    if(!f) return [];
+    const segs = K.toBeziers(f.curve);
+    fillComp(comp, A, segs, path.closed);
+    /* 純スプラインは点の数だけ区間がある。閉パスは周回、開パスは両端まで */
+    if(segmap) for(let k=0;k<segs.length;k++)
+      segmap.push({a:k, b: path.closed ? (k+1)%n : k+1});
+    return segs;
+  }
+
+  /* 区間の切れ目。開いたパスは両端も切れ目になる */
+  let cuts = hard.slice();
+  if(!path.closed){
+    if(cuts[0] !== 0) cuts.unshift(0);
+    if(cuts[cuts.length-1] !== n-1) cuts.push(n-1);
+    cuts = cuts.filter((v,i)=>cuts.indexOf(v)===i).sort((a,b)=>a-b);
+  }
+  const out = [];
+  const pairs = [];
+  if(path.closed){ for(let k=0;k<cuts.length;k++) pairs.push([cuts[k], cuts[(k+1)%cuts.length]]); }
+  else           { for(let k=0;k<cuts.length-1;k++) pairs.push([cuts[k], cuts[k+1]]); }
+
+  for(const [a,b] of pairs){
+    /* a から b までのインデックス列 */
+    const idx = [a]; let i = a, guard = 0;
+    while(i !== b){ i = (i+1)%n; idx.push(i); if(++guard > n+2) break; }
+    if(idx.length < 2) continue;
+
+    if(idx.length === 2 && A[a].mode==='bezier' && A[b].mode==='bezier'){
+      /* 隣り合うベジェ点どうし。ハンドルをそのまま使う（無ければ直線） */
+      const c1 = A[a].ho || A[a], c2 = A[b].hi || A[b];
+      out.push(seg(A[a], c1, c2, A[b]));
+      if(segmap) segmap.push({a, b});
+      continue;
+    }
+    /* スプライン区間。両端がベジェならその接線を渡す */
+    const D = idx.map(i2=>({x:A[i2].x, y:A[i2].y}));
+    const tt = K.chordParams(D,false);
+    const dt0 = Math.max(tt[1]-tt[0], 1e-9);
+    const dt1 = Math.max(tt[tt.length-1]-tt[tt.length-2], 1e-9);
+    const opts = {};
+    if(A[a].mode==='bezier' && A[a].ho)
+      opts.t0 = {x:3*(A[a].ho.x-A[a].x)/dt0, y:3*(A[a].ho.y-A[a].y)/dt0};
+    if(A[b].mode==='bezier' && A[b].hi)
+      opts.t1 = {x:3*(A[b].x-A[b].hi.x)/dt1, y:3*(A[b].y-A[b].hi.y)/dt1};
+    const f = K.fitOpen(D,3,opts);
+    if(!f) continue;
+    const segs = K.toBeziers(f.curve);
+    /* この区間の点が持つ接線を控えておく（種類を切り替えるとき形を保つため） */
+    if(comp) for(let k=0;k<idx.length;k++){
+      const at = idx[k];
+      if(k < segs.length) comp[at].ho = {x:segs[k].c1.x, y:segs[k].c1.y};
+      if(k > 0)           comp[at].hi = {x:segs[k-1].c2.x, y:segs[k-1].c2.y};
+    }
+    /* この区間内は idx[k] から idx[k+1] へ、区間の数だけ */
+    if(segmap) for(let k=0;k<segs.length;k++) segmap.push({a:idx[k], b:idx[k+1]});
+    for(const s of segs) out.push(s);
+  }
+  return out;
+}
+function fillComp(comp, A, segs, closed){
+  if(!comp) return;
+  for(let k=0;k<segs.length;k++){
+    const a0 = k, a1 = (k+1) % A.length;
+    if(comp[a0]) comp[a0].ho = {x:segs[k].c1.x, y:segs[k].c1.y};
+    if(comp[a1]) comp[a1].hi = {x:segs[k].c2.x, y:segs[k].c2.y};
+  }
+}
+function build(){
+  BEZ = []; COMP = []; SEGMAP = []; LOOPS = [];
+  for(const p of S.paths){
+    const c=[], m=[], segs=pathBeziers(p,c,m);
+    BEZ.push(segs); COMP.push(c); SEGMAP.push(m);
+    /* 開いた塗りパスだけ、自己交差ループを計算しておく（render では毎回計算しない） */
+    LOOPS.push((p.fill && !p.closed && p.anchors.length>=3) ? K.fillLoops(segs) : null);
+  }
+  /* シェイプ形成の最中に形が変わったら面を取り直す。
+     取り直さないと、消えたパスの上に付いた印のまま確定できてしまう */
+  if(S.tool==='shapebuild') shapeRefresh();
+}
+
+/* =========================================================
+   描画
+   ========================================================= */
+let VW=800, VH=600, pendingFit=false;
+/* 測れたときだけ更新する。タブが非表示・折りたたみ中は矩形が0になるので、
+   そのまま入れると倍率が壊れる（実際に 1x1 になって形が消えた）。 */
+function fitCanvas(){
+  const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio||1, 2.5);
+  const w = Math.round(r.width), h = Math.round(r.height);
+  if(w < 2 || h < 2) return false;
+  VW = w; VH = h;
+  cv.width = Math.round(VW*dpr); cv.height = Math.round(VH*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return true;
+}
+function resize(){
+  if(!fitCanvas()) return;
+  if(pendingFit){ pendingFit = false; if(pendingInit){ pendingInit = false; initView(); } else fitView(); }
+  render();
+}
+
+/* グリッドを描く＝どの規則で吸着しているかの可視化。
+   等比・フィボナッチ・放射は中心が要るので原点も描く。 */
+function drawGrid(){
+  const gt = document.getElementById('gthin'); if(gt) gt.textContent = '';
+  if(!S.grid.on) return;
+  const G = S.grid, s = S.view.s;
+  /* 等間隔は、画面上の間隔が 8px 未満なら k 本に 1 本だけ描く（吸着は本来の間隔のまま） */
+  let gk = 1;
+  if(G.kind === 'even'){
+    for(const c of [1,2,5,10,20,50,100,200,500,1000]){ gk = c; if(c*G.step*s >= 8) break; }
+    if(gt && gk > 1) gt.textContent = `表示は ${+(G.mm*gk).toFixed(2)} mm おき`;
+  } else if(G.step*s < 2) return;
+  const a = toW(0,0), b = toW(VW,VH);
+  const box = {x0:Math.min(a.x,b.x), y0:Math.min(a.y,b.y), x1:Math.max(a.x,b.x), y1:Math.max(a.y,b.y)};
+  const gu = Grid.guides(G, box);
+  if(gk > 1){
+    const keep = (vals, c0) => vals.filter(v => Math.round((v-c0)/G.step) % gk === 0);
+    gu.v = keep(gu.v, G.cx); gu.h = keep(gu.h, G.cy);
+  }
+  /* スナップ中の濃色→撤去、5本ごとの太線→撤去、それでも「最初の網が濃い」と
+     指摘された（2026-08-11に3度目）。原因は色ではなく密度：既定の20pxの目は
+     等倍だと網として濃く見える。目の画面上の間隔に応じて透明度を落とす。
+     1マスが30pxで満速、6px以下で消える。拡大するほど網がはっきり現れる。 */
+  const thin = '#F0EFED';
+  /* 「スタート時だけ濃い」の真因は再ストロークのバグだった（traceSegs 参照）。
+     真因の修正後、密度で透明度を落とす仕掛けは「逆に薄すぎる」と指摘されたので
+     撤去し、元の一定の薄さ（#F0EFED）に戻した（2026-08-12） */
+  ctx.save(); ctx.lineWidth = 1;
+
+  if(G.kind === 'polar'){
+    const c = toS({x:G.cx, y:G.cy});
+    const far = Math.max(...gu.rings, G.step) * s;
+    ctx.strokeStyle = thin;
+    ctx.beginPath();
+    for(const th of gu.rays){
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(c.x + Math.cos(th)*far, c.y + Math.sin(th)*far);
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    for(let i=0;i<gu.rings.length;i++){
+      if(gu.rings[i]*s < 3) continue;
+      ctx.moveTo(c.x + gu.rings[i]*s, c.y);
+      ctx.arc(c.x, c.y, gu.rings[i]*s, 0, 6.2832);
+    }
+    ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.strokeStyle = thin;
+    for(const x of gu.v){
+      const sx = Math.round(x*s + S.view.ox)+0.5;
+      ctx.moveTo(sx,0); ctx.lineTo(sx,VH);
+    }
+    for(const y of gu.h){
+      const sy = Math.round(y*s + S.view.oy)+0.5;
+      ctx.moveTo(0,sy); ctx.lineTo(VW,sy);
+    }
+    ctx.stroke();
+  }
+  /* 中心。等間隔以外は中心の位置で目の並びが変わるので、必ず見えるようにする
+     （網の透明度に巻き込まない） */
+  ctx.globalAlpha = 1;
+  if(G.kind !== 'even'){
+    const c = toS({x:G.cx, y:G.cy});
+    ctx.strokeStyle = '#0353AA'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(c.x-7, c.y); ctx.lineTo(c.x+7, c.y);
+    ctx.moveTo(c.x, c.y-7); ctx.lineTo(c.x, c.y+7);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function traceSegs(segs){
+  /* beginPath は空でも必ず呼ぶ。呼ばずに戻ると、直後の stroke() が
+     「直前に構築されたパス」＝グリッドをもう一度黒で描いてしまう。
+     起動直後だけグリッドが濃かった正体がこれ（空の初期パスが再ストロークしていた）。 */
+  ctx.beginPath();
+  if(!segs || !segs.length) return;
+  let prev = null;
+  for(const s of segs){
+    if(!prev || Math.hypot(s.p0.x-prev.x, s.p0.y-prev.y) > 1e-6){
+      const a = toS(s.p0); ctx.moveTo(a.x,a.y);
+    }
+    const c1=toS(s.c1), c2=toS(s.c2), p1=toS(s.p1);
+    ctx.bezierCurveTo(c1.x,c1.y,c2.x,c2.y,p1.x,p1.y);
+    prev = s.p1;
+  }
+}
+function tracePath(pi){ traceSegs(BEZ[pi]); }
+function drawAnchors(pi){
+  if(!S.show.anchors) return;
+  const path = S.paths[pi], act = pi===S.cur;
+  const r = COARSE ? 6.5 : 5;
+  /* ハンドル（選択中のベジェ点だけ出す。全部出すと画面が潰れる） */
+  ctx.save();
+  for(let i=0;i<path.anchors.length;i++){
+    const a = path.anchors[i];
+    if(a.mode!=='bezier' || !selHas(pi,i)) continue;
+    const q = toS(a);
+    for(const h of [a.hi, a.ho]){
+      if(!h) continue;
+      const t = toS(h);
+      ctx.strokeStyle='#7FA9DC'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(q.x,q.y); ctx.lineTo(t.x,t.y); ctx.stroke();
+      ctx.beginPath(); ctx.arc(t.x,t.y, COARSE?6:4.5, 0, 6.2832);
+      ctx.fillStyle='#fff'; ctx.fill();
+      ctx.strokeStyle='#0353AA'; ctx.lineWidth=1.5; ctx.stroke();
+    }
+  }
+  ctx.restore();
+  /* アンカー。Bスプライン=丸 / ベジェ=四角（イラレのアンカーに寄せる） */
+  for(let i=0;i<path.anchors.length;i++){
+    const a = path.anchors[i], q = toS(a), on = selHas(pi,i);
+    ctx.beginPath();
+    if(a.mode==='bezier') ctx.rect(q.x-r, q.y-r, r*2, r*2);
+    else ctx.arc(q.x, q.y, r, 0, 6.2832);
+    ctx.fillStyle = on ? '#0353AA' : '#fff'; ctx.fill();
+    ctx.lineWidth = on ? 2 : 1.5;
+    ctx.strokeStyle = on ? '#0353AA' : (act ? '#0353AA' : '#9A9A98');
+    ctx.stroke();
+  }
+}
+/* =========================================================
+   選択した点を、いまのグリッドへまとめて吸着させる（座標の修正）
+   ========================================================= */
+function snapSelected(){
+  const targets = S.sel.length ? S.sel
+    : S.paths.flatMap((p,pi)=>p.anchors.map((_,a)=>({p:pi,a})));
+  if(!targets.length){ toast('吸着させる点がありません'); return; }
+  snap_();
+  let moved = 0, far = 0;
+  for(const s of targets){
+    const a = anchorAt(s); if(!a) continue;
+    const q = Grid.snapPoint(a, S.grid);
+    const dx = R2(q.x)-a.x, dy = R2(q.y)-a.y;
+    if(Math.hypot(dx,dy) > 1e-9){ moved++; far = Math.max(far, Math.hypot(dx,dy)); }
+    if(a.hi){ a.hi.x = R2(a.hi.x+dx); a.hi.y = R2(a.hi.y+dy); }
+    if(a.ho){ a.ho.x = R2(a.ho.x+dx); a.ho.y = R2(a.ho.y+dy); }
+    a.x = R2(q.x); a.y = R2(q.y);
+  }
+  build(); render(); syncInsp();
+  toast(moved ? `${targets.length}点のうち ${moved}点を動かしました（最大 ${Math.round(far)}px）`
+              : `${targets.length}点はすでにグリッドの上にあります`);
+}
+/* アンカーポイントを規則的に配置してパスにする。
+   置き場所は Grid.regularPoints（円周・二重円・直線）、繋ぎ順は
+   順番どおり／跳び k（星型多角形。n=5,k=2 で五芒星）。
+   半径・内半径はUI上は px（絶対値）。Grid.regularPoints 自体は
+   「グリッドのマス単位」で半径を受け取る（rad = r * step）ので、
+   ここで S.grid.step から逆算してから渡す（grid.js は書き換えない）。
+   跳びで割り切れるとき（n=6,k=2 等）は自動で複数の閉路に分かれる＝六芒星は三角形2つ。 */
+function makeGenerated(){
+  const g = S.gen;
+  const stepPx = S.grid.step > 0 ? S.grid.step : 1;
+  const pts = Grid.regularPoints({shape:g.shape, n:g.count, r:g.range/stepPx, r2:g.r2/stepPx,
+                                  step:S.grid.step, cx:S.grid.cx, cy:S.grid.cy});
+  if(pts.length < 2){ toast('点の数が足りません'); return; }
+  const cycles = g.rule==='skip' ? Grid.starOrder(pts.length, g.k)
+                                 : [pts.map((_,i)=>i)];
+  snap_();
+  const newPaths = cycles.map(cy=>({
+    closed: g.closed && cy.length>=3, fill:false,
+    anchors: cy.map(i=>mkAnchor(pts[i].x, pts[i].y, 'spline'))
+  }));
+  /* 前回生成した形を触っていなければ置き換え（引き直しの感覚）。触っていたら残して新規 */
+  const untouched = genLast.idxs.length
+    && genLast.idxs.every(i=>i<S.paths.length)
+    && JSON.stringify(genLast.idxs.map(i=>S.paths[i]))===genLast.stamp;
+  if(untouched)
+    genLast.idxs.slice().sort((a,b)=>b-a).forEach(i=>S.paths.splice(i,1));
+  if(S.paths.length===1 && !S.paths[0].anchors.length) S.paths.length = 0;
+  const base = S.paths.length;
+  newPaths.forEach(p=>S.paths.push(p));
+  genLast.idxs = newPaths.map((_,k)=>base+k);
+  genLast.stamp = JSON.stringify(newPaths);
+  S.cur = S.paths.length-1; S.sel = [];
+  /* 生成は「いまのグリッド」を置き場に使うので、グリッドが隠れていたら見せる */
+  if(!S.grid.on){ S.grid.on = true; document.getElementById('bGrid').setAttribute('aria-pressed','true'); }
+  build(); render(); syncInsp();
+}
+
+/* =========================================================
+   点の関係 — 既存のアンカーを、間隔・角度の規則を満たす位置へ動かす
+   グリッドの規則（点と座標系）と対をなす、点と点の規則。
+   ========================================================= */
+function syncRel(){
+  document.querySelectorAll('#segRelMode button').forEach(b=>
+    b.setAttribute('aria-pressed', String(b.dataset.v===S.rel.mode)));
+  document.querySelectorAll('#segRelAng button').forEach(b=>
+    b.setAttribute('aria-pressed', String(+b.dataset.v===S.rel.ang)));
+  /* 比率は等比・交互のどちらでも使う規則（rules.js の rawGaps）ので、
+     等間隔のときだけ隠す */
+  document.getElementById('wRelRatio').classList.toggle('off', S.rel.mode==='even');
+}
+/* 対象：選択中のアンカーが属するパス。選択が無ければ現在のパス */
+function relTargets(){
+  const set = new Set(S.sel.map(s=>s.p));
+  const list = set.size ? [...set] : [S.cur];
+  return list.filter(i=>S.paths[i] && S.paths[i].anchors.length>=3);
+}
+/* いまの曲線を細かいポリラインにする（間隔の置き直しは曲線に沿って測るため） */
+function pathSamples(pi){
+  const segs = BEZ[pi]||[], out = [];
+  for(const s of segs){
+    for(let k=0;k<40;k++){
+      const t=k/40, m=1-t;
+      out.push({x:m*m*m*s.p0.x+3*m*m*t*s.c1.x+3*m*t*t*s.c2.x+t*t*t*s.p1.x,
+                y:m*m*m*s.p0.y+3*m*m*t*s.c1.y+3*m*t*t*s.c2.y+t*t*t*s.p1.y});
+    }
+  }
+  if(segs.length){ const e=segs[segs.length-1].p1; out.push({x:e.x, y:e.y}); }
+  return out;
+}
+/* 新しい座標をアンカーへ書き戻す。ハンドルは点と一緒に平行移動 */
+function writeAnchors(pi, pts){
+  const A = S.paths[pi].anchors;
+  for(let i=0;i<A.length && i<pts.length;i++){
+    const dx = R2(pts[i].x)-A[i].x, dy = R2(pts[i].y)-A[i].y;
+    if(A[i].hi){ A[i].hi.x=R2(A[i].hi.x+dx); A[i].hi.y=R2(A[i].hi.y+dy); }
+    if(A[i].ho){ A[i].ho.x=R2(A[i].ho.x+dx); A[i].ho.y=R2(A[i].ho.y+dy); }
+    A[i].x = R2(pts[i].x); A[i].y = R2(pts[i].y);
+  }
+}
+function applySpacing(){
+  const ts = relTargets();
+  if(!ts.length){ toast('3点以上のパスを選んでください'); return; }
+  snap_();
+  for(const pi of ts){
+    const p = S.paths[pi];
+    const fr = Rules.spacingFractions(p.anchors.length, p.closed, S.rel.mode, S.rel.ratio);
+    const pts = Rules.arcPositions(pathSamples(pi), fr);
+    writeAnchors(pi, pts);
+  }
+  genLast.idxs = [];
+  build(); render(); syncInsp();
+  toast('間隔を分布しました（曲線に沿って置き直し）');
+}
+function applyAngles(kind){
+  const ts = relTargets();
+  if(!ts.length){ toast('3点以上のパスを選んでください'); return; }
+  snap_();
+  let done = 0;
+  for(const pi of ts){
+    const p = S.paths[pi];
+    const src = p.anchors.map(a=>({x:a.x, y:a.y}));
+    const out = kind==='snap' ? Rules.snapAngles(src, p.closed, S.rel.ang)
+                              : Rules.equalTurn(src, p.closed);
+    if(!out) continue;                       /* 全区間ほぼ平行などで閉じられない場合 */
+    writeAnchors(pi, out); done++;
+  }
+  genLast.idxs = [];
+  build(); render(); syncInsp();
+  toast(done ? (kind==='snap' ? '角度を'+S.rel.ang+'°刻みに制限しました' : '折れ角を統一しました')
+             : 'このパスでは閉じたまま適用できませんでした');
+}
+
+/* 単純化 — アンカーの数を減らす（Illustrator の パス→単純化 と同じ役割）。
+   いまの曲線を細かくサンプルし、鉛筆と同じ当てはめ（fitStroke）で
+   より少ないアンカーに要約する。押すたびに許容誤差を広げて再挑戦するので、
+   連打すると段階的に減っていく。ベジェ点はスプライン点に変わる。 */
+function simplifySelected(){
+  const ts = relTargets();
+  if(!ts.length){ toast('3点以上のパスを選んでください'); return; }
+  snap_();
+  let msg = null, changed = 0;
+  for(const pi of ts){
+    const p = S.paths[pi], before = p.anchors.length;
+    const samples = pathSamples(pi);
+    if(samples.length < 4) continue;
+    let tol = 2.5 / S.view.s, f = null;
+    for(let k=0;k<8;k++){
+      const g = K.fitStroke(samples, tol);
+      if(g && g.points.length >= 2 && g.points.length < before){ f = g; break; }
+      tol *= 1.8;
+    }
+    if(!f) continue;
+    const pts = f.points.slice();
+    /* 開いたパスの端を当てはめが「閉じた」と誤認したら、末尾の点を戻して開いたまま保つ */
+    if(!p.closed && f.closed) pts.push({x:samples[samples.length-1].x, y:samples[samples.length-1].y});
+    p.anchors = pts.map(q=>mkAnchor(q.x, q.y, 'spline'));
+    if(p.anchors.length < 3) p.closed = false;
+    changed++;
+    msg = '単純化: アンカー '+before+' → '+p.anchors.length+' 個';
+  }
+  genLast.idxs = [];
+  S.sel = [];
+  build(); render(); syncInsp();
+  toast(changed ? (ts.length>1 ? changed+'本のパスを単純化しました' : msg)
+                : 'これ以上減らせません');
+}
+
+/* =========================================================
+   回転 — 選択したアンカー（無ければ現在のパス）を、中心のまわりに回す
+   中心はグリッド・生成・点の関係と同じで「置き場所」として持つ。既定は対象の重心、
+   クリックで明示的に動かせる。対象が変わったら重心を取り直す（sig で検知） */
+function rotTargets(){
+  if(S.sel.length) return S.sel.slice();
+  const P = S.paths[S.cur];
+  return P ? P.anchors.map((_,a)=>({p:S.cur,a})) : [];
+}
+function rotCentroid(){
+  const pts = rotTargets().map(anchorAt).filter(Boolean);
+  if(!pts.length) return {x:0, y:0};
+  return Grid.centroid(pts);
+}
+function ensureRotCenter(){
+  const sig = JSON.stringify(rotTargets());
+  if(sig === S.rot.sig) return;
+  const c = rotCentroid();
+  S.rot.cx = R2(c.x); S.rot.cy = R2(c.y); S.rot.sig = sig;
+}
+function rotatePt(p, c, rad){
+  const dx = p.x-c.x, dy = p.y-c.y, cs = Math.cos(rad), sn = Math.sin(rad);
+  return {x: c.x + dx*cs - dy*sn, y: c.y + dx*sn + dy*cs};
+}
+/* ドラッグ中は毎回、保存しておいた元座標から回転をかけ直す（累積誤差を避ける）。
+   角度は正＝反時計回り（イラレの回転と同じ）。画面のYは下向きなので符号を反転する */
+function applyRotationFrom(from, c, deg){
+  const rad = -deg*Math.PI/180;
+  for(const f of from){
+    const a = S.paths[f.p] && S.paths[f.p].anchors[f.a];
+    if(!a) continue;
+    const np = rotatePt({x:f.x,y:f.y}, c, rad);
+    a.x = R2(np.x); a.y = R2(np.y);
+    if(f.hi){ const h = rotatePt(f.hi, c, rad); a.hi = {x:R2(h.x), y:R2(h.y)}; }
+    if(f.ho){ const h = rotatePt(f.ho, c, rad); a.ho = {x:R2(h.x), y:R2(h.y)}; }
+  }
+}
+let rotAngleAPI = null;   /* パネルの角度欄（bindNumberRow）。ドラッグ中はここに live 表示する */
+function setRotAngleField(v){
+  if(rotAngleAPI) rotAngleAPI.show(+v);
+}
+function drawRotCenter(){
+  const c = toS({x:S.rot.cx, y:S.rot.cy});
+  ctx.save();
+  ctx.strokeStyle = '#0353AA'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(c.x-7, c.y); ctx.lineTo(c.x+7, c.y);
+  ctx.moveTo(c.x, c.y-7); ctx.lineTo(c.x, c.y+7);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(c.x, c.y, 10, 0, 6.2832);
+  ctx.stroke();
+  ctx.restore();
+}
+
+let marquee = null, ghost = null;
+function render(){
+  if(S.tool==='rotate') ensureRotCenter();
+  ctx.clearRect(0,0,VW,VH);
+  drawGrid();
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  const CF = S.col.fill, CS = S.col.stroke;
+  const lineOn = S.outline || CS!=='none', lineCol = S.outline ? '#1A1A1A' : CS, lineW = S.outline ? 1 : 1.6;
+  const fillOn = !S.outline && CF!=='none';
+  /* 奇偶規則＝自己交差の重なりが交互に抜ける。Illustrator の属性パネルの
+     奇偶規則と同じ。塗るパスは輪郭を持たない（塗りと線は別の見た目なので同時に出さない） */
+  for(let i=0;i<S.paths.length;i++){
+    const p = S.paths[i];
+    if(p.fill && fillOn && p.closed && p.anchors.length>=3){
+      tracePath(i); ctx.fillStyle = CF; ctx.fill('evenodd');
+    } else if(p.fill && fillOn && !p.closed && p.anchors.length>=3){
+      /* 開いた塗りパス：端点どうしを結んだ領域は塗らない。線は今までの非塗りと同じ見た目で出し、
+         曲線自身が自己交差してできた閉ループだけを重ねて塗る（交差が無ければ線だけになる） */
+      if(lineOn){ ctx.lineWidth = lineW; ctx.strokeStyle = lineCol; tracePath(i); ctx.stroke(); }
+      const loops = LOOPS[i];
+      if(loops && loops.length){
+        traceSegs([].concat(...loops));
+        ctx.fillStyle = CF; ctx.fill('evenodd');
+      }
+    } else if(lineOn){
+      ctx.lineWidth = lineW; ctx.strokeStyle = lineCol;
+      tracePath(i); ctx.stroke();
+    }
+  }
+  for(let i=0;i<S.paths.length;i++) drawAnchors(i);
+  if(S.tool==='shapebuild') drawShapeTool();
+  if(S.tool==='rotate') drawRotCenter();
+  if(ghost){                                   /* 図形ツールのドラッグ中 */
+    ctx.save(); ctx.strokeStyle='#0353AA'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+    const a=toS({x:ghost.x0,y:ghost.y0}), b=toS({x:ghost.x1,y:ghost.y1});
+    ctx.strokeRect(Math.min(a.x,b.x), Math.min(a.y,b.y), Math.abs(b.x-a.x), Math.abs(b.y-a.y));
+    ctx.restore();
+  }
+  if(drag && drag.kind==='draw' && drag.trail.length>1){   /* 鉛筆の描き途中 */
+    ctx.save(); ctx.strokeStyle='#9A9A98'; ctx.lineWidth=1;
+    ctx.beginPath();
+    const t0 = toS(drag.trail[0]); ctx.moveTo(t0.x, t0.y);
+    for(let i=1;i<drag.trail.length;i++){ const t=toS(drag.trail[i]); ctx.lineTo(t.x,t.y); }
+    ctx.stroke(); ctx.restore();
+  }
+  if(marquee){
+    ctx.save(); ctx.strokeStyle='#0353AA'; ctx.lineWidth=1;
+    ctx.fillStyle='#0353AA14';
+    const x=Math.min(marquee.x0,marquee.x1), y=Math.min(marquee.y0,marquee.y1);
+    const w=Math.abs(marquee.x1-marquee.x0), h=Math.abs(marquee.y1-marquee.y0);
+    ctx.fillRect(x,y,w,h); ctx.strokeRect(x+.5,y+.5,w,h); ctx.restore();
+  }
+  syncHint();
+}
+
+/* =========================================================
+   入力
+   ========================================================= */
+const DRAWS = t => t==='pen' || t==='mouse';
+let drag=null, touches=new Map(), pinch=null, spaceDown=false;
+
+function evXY(e){ const r=cv.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+function hitAnchor(sx,sy){
+  const R = COARSE ? 22 : 12;
+  for(let p=S.paths.length-1;p>=0;p--){
+    const A = S.paths[p].anchors;
+    for(let i=A.length-1;i>=0;i--){
+      const q = toS(A[i]);
+      if(Math.hypot(q.x-sx, q.y-sy) <= R) return {p,a:i};
+    }
+  }
+  return null;
+}
+function hitHandle(sx,sy){
+  const R = COARSE ? 20 : 11;
+  for(const s of S.sel){
+    const a = anchorAt(s); if(!a || a.mode!=='bezier') continue;
+    for(const key of ['hi','ho']){
+      if(!a[key]) continue;
+      const q = toS(a[key]);
+      if(Math.hypot(q.x-sx, q.y-sy) <= R) return {p:s.p, a:s.a, key};
+    }
+  }
+  return null;
+}
+/* V（選択）用：パス丸ごとの選択。Shiftは追加、すでに全アンカーが選択済みのパスなら外す */
+function selectWholePath(pi, shift){
+  const all = S.paths[pi].anchors.map((_,a)=>({p:pi,a}));
+  const fully = all.length>0 && all.every(s=>selHas(s.p,s.a));
+  if(shift){
+    if(fully) S.sel = S.sel.filter(s=>s.p!==pi);
+    else S.sel = S.sel.concat(all.filter(s=>!selHas(s.p,s.a)));
+  } else {
+    S.sel = all;
+  }
+}
+/* ctx.isPointInStroke は setTransform でかけた拡大率（DPR）を無視し、
+   座標も線幅もデバイスピクセルのまま判定する（Retinaで実測して判明。
+   2026-08-13、曲線上クリックがほぼ当たらない不具合の原因）。
+   CSS座標のまま渡すと、Retina機で線の真上をクリックしてもほぼ外れる。
+   座標・線幅の両方をdpr倍してから渡す。 */
+function hitPath(sx,sy){
+  const dpr = Math.min(devicePixelRatio||1, 2.5);
+  for(let p=S.paths.length-1;p>=0;p--){
+    if(!BEZ[p] || !BEZ[p].length) continue;
+    tracePath(p);
+    ctx.lineWidth = (COARSE ? 18 : 10) * dpr;
+    if(ctx.isPointInStroke(sx*dpr, sy*dpr)) return p;
+  }
+  return null;
+}
+/* ペンで曲線の上をクリックしたら、その曲線上の座標にアンカーを挿入する。
+   スナップはしない（挿入点はすでに曲線の上にあるので、形を保つため）。
+   最も近い位置は K.closestOnCurve が求める（粗い探索→Newton法で精密化。
+   以前は区間ごとに固定50分割の中から最も近いサンプルを選ぶだけで、
+   区間が長いと数〜十数pxもズレることがあった。2026-08-13、実測で確認して修正）。 */
+function insertOnCurve(pi, sx, sy){
+  const segs = BEZ[pi], map = SEGMAP[pi];
+  if(!segs || !segs.length || !map || map.length!==segs.length) return false;
+  const qw = toW(sx,sy);
+  const best = K.closestOnCurve(segs, qw);
+  if(!best) return false;
+  const {a,b} = map[best.si];
+  const path = S.paths[pi];
+  const insertAt = (path.closed && b===0) ? path.anchors.length : b;
+  snap_();
+  path.anchors.splice(insertAt, 0, mkAnchor(best.x, best.y, 'spline'));
+  S.cur = pi;
+  S.sel = [{p:pi, a:insertAt}];
+  build(); render(); syncInsp();
+  return true;
+}
+
+cv.addEventListener('pointerdown', e=>{
+  const q = evXY(e);
+  if(!DRAWS(e.pointerType)){
+    touches.set(e.pointerId, q);
+    if(touches.size===2){
+      const [a,b] = [...touches.values()];
+      pinch = {d:Math.hypot(a.x-b.x,a.y-b.y), cx:(a.x+b.x)/2, cy:(a.y+b.y)/2,
+               s:S.view.s, ox:S.view.ox, oy:S.view.oy, t0:performance.now(), moved:false};
+      if(drag) drag.multi = true;                /* 2本指だった印。1本指のタップと区別する */
+    } else if(touches.size===1){
+      drag = {kind:'pan', x0:q.x, y0:q.y, ox:S.view.ox, oy:S.view.oy,
+              t0:performance.now(), multi:false};
+    }
+    return;
+  }
+  cv.setPointerCapture(e.pointerId);
+
+  if(spaceDown){ drag={kind:'pan', x0:q.x, y0:q.y, ox:S.view.ox, oy:S.view.oy}; return; }
+
+  if(S.tool==='rect' || S.tool==='ellipse' || S.tool==='poly'){
+    const w = snapXY(toW(q.x,q.y), e.shiftKey);
+    drag = {kind:'shape', x0:w.x, y0:w.y, sx:q.x, sy:q.y};
+    ghost = {x0:w.x, y0:w.y, x1:w.x, y1:w.y};
+    return;
+  }
+  if(S.tool==='pencil'){
+    drag = {kind:'draw', trail:[toW(q.x,q.y)]};
+    S.sel = []; render();
+    return;
+  }
+  if(S.tool==='shapebuild'){
+    shapeClick(q.x, q.y, e.altKey);
+    drag = null;
+    return;
+  }
+  if(S.tool==='rotate'){
+    const targets = rotTargets(), w0 = toW(q.x,q.y);
+    drag = {kind:'rotate', moved:false, x0:q.x, y0:q.y,
+            c:{x:S.rot.cx, y:S.rot.cy},
+            a0: Math.atan2(w0.y-S.rot.cy, w0.x-S.rot.cx),
+            from: targets.map(s=>{
+              const a = anchorAt(s);
+              return a && {p:s.p, a:s.a, x:a.x, y:a.y,
+                           hi: a.hi ? {x:a.hi.x, y:a.hi.y} : null,
+                           ho: a.ho ? {x:a.ho.x, y:a.ho.y} : null};
+            }).filter(Boolean)};
+    return;
+  }
+
+  const hh = hitHandle(q.x,q.y);
+  if(hh){ snap_(); drag = {kind:'handle', ...hh}; return; }
+
+  const h = hitAnchor(q.x,q.y);
+  if(h){
+    const P = S.paths[h.p];
+    /* ペンで、いま描いているパスの先頭を叩いたら閉じる */
+    if(S.tool==='pen' && !P.closed && h.a===0 && P.anchors.length>=3 && h.p===S.cur){
+      snap_(); P.closed = true; S.sel=[h]; build(); render(); syncInsp();
+      drag=null; return;
+    }
+    /* V（選択）：アンカーを押してもパス全体を選ぶ。ダイレクト選択（A）とペンは1点のまま */
+    if(S.tool==='select'){
+      selectWholePath(h.p, e.shiftKey);
+      S.cur = h.p;
+      drag = {kind:'move', moved:false,
+              from:S.sel.map(s=>({p:s.p, a:s.a, x:anchorAt(s).x, y:anchorAt(s).y})),
+              gx:toW(q.x,q.y)};
+      render(); syncInsp(); return;
+    }
+    if(e.shiftKey){ if(!selHas(h.p,h.a)) S.sel.push(h); }
+    else if(!selHas(h.p,h.a)) S.sel = [h];
+    S.cur = h.p;
+    drag = {kind:'move', moved:false,
+            from:S.sel.map(s=>({p:s.p, a:s.a, x:anchorAt(s).x, y:anchorAt(s).y})),
+            gx:toW(q.x,q.y)};
+    render(); syncInsp(); return;
+  }
+
+  if(S.tool==='pen'){
+    const hp = hitPath(q.x,q.y);
+    if(hp!==null && insertOnCurve(hp, q.x, q.y)) return;
+    drag = {kind:'add', x0:q.x, y0:q.y, t0:performance.now(), moved:false,
+            ox:S.view.ox, oy:S.view.oy};
+    if(!e.shiftKey) S.sel = [];
+    render(); syncInsp(); return;
+  }
+  /* V（選択）：アンカーを押しても線を押してもパス全体を選ぶ。空白なら矩形選択（パス単位） */
+  if(S.tool==='select'){
+    const pi = hitPath(q.x,q.y);
+    if(pi!==null){
+      S.cur = pi;
+      selectWholePath(pi, e.shiftKey);
+      drag = {kind:'move', moved:false,
+              from:S.sel.map(s=>({p:s.p,a:s.a,x:anchorAt(s).x,y:anchorAt(s).y})),
+              gx:toW(q.x,q.y)};
+      render(); syncInsp(); return;
+    }
+    if(!e.shiftKey) S.sel = [];
+    marquee = {x0:q.x, y0:q.y, x1:q.x, y1:q.y};
+    drag = {kind:'marquee', mode:'path'};
+    render(); syncInsp(); return;
+  }
+  /* A（ダイレクト選択）：パス本体を叩いたらそのパスを丸ごと選ぶ。空白なら矩形選択（点単位） */
+  const pi = hitPath(q.x,q.y);
+  if(pi!==null){
+    S.cur = pi;
+    const all = S.paths[pi].anchors.map((_,a)=>({p:pi,a}));
+    S.sel = e.shiftKey ? S.sel.concat(all.filter(s=>!selHas(s.p,s.a))) : all;
+    drag = {kind:'move', moved:false,
+            from:S.sel.map(s=>({p:s.p,a:s.a,x:anchorAt(s).x,y:anchorAt(s).y})),
+            gx:toW(q.x,q.y)};
+    render(); syncInsp(); return;
+  }
+  if(!e.shiftKey) S.sel = [];
+  marquee = {x0:q.x, y0:q.y, x1:q.x, y1:q.y};
+  drag = {kind:'marquee'};
+  render(); syncInsp();
+});
+
+cv.addEventListener('pointermove', e=>{
+  const q = evXY(e);
+  if(!DRAWS(e.pointerType)){
+    if(touches.has(e.pointerId)) touches.set(e.pointerId, q);
+    if(pinch && touches.size===2){
+      const [a,b] = [...touches.values()];
+      const d = Math.hypot(a.x-b.x,a.y-b.y), cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
+      if(Math.abs(d-pinch.d)>6 || Math.hypot(cx-pinch.cx,cy-pinch.cy)>6) pinch.moved = true;
+      const ns = Math.max(0.1, Math.min(12, pinch.s*(d/(pinch.d||1))));
+      S.view.s = ns;
+      S.view.ox = cx - (pinch.cx - pinch.ox)*(ns/pinch.s);
+      S.view.oy = cy - (pinch.cy - pinch.oy)*(ns/pinch.s);
+      render();
+    } else if(drag && drag.kind==='pan'){
+      S.view.ox = drag.ox + (q.x-drag.x0); S.view.oy = drag.oy + (q.y-drag.y0); render();
+    }
+    return;
+  }
+  if(S.tool==='shapebuild'){
+    HOVER = shapeFaceAt(q.x, q.y);
+    HOVERXY = {x:q.x, y:q.y, alt:e.altKey};
+    render();
+    return;
+  }
+  if(!drag) return;
+  if(drag.kind==='pan'){
+    S.view.ox = drag.ox + (q.x-drag.x0); S.view.oy = drag.oy + (q.y-drag.y0); render(); return;
+  }
+  if(drag.kind==='shape'){
+    const w = snapXY(toW(q.x,q.y), e.shiftKey);
+    ghost.x1 = w.x; ghost.y1 = w.y; render(); return;
+  }
+  if(drag.kind==='marquee'){ marquee.x1=q.x; marquee.y1=q.y; render(); return; }
+  if(drag.kind==='draw'){
+    /* ペンの高頻度サンプルを取りこぼさない（115_symmetry と同じ作法）。
+       getCoalescedEvents は空配列を返すことがある（合成イベントや一部のマウス）。
+       空配列は真値なので || では拾えない。長さまで見てから素のイベントに落とす */
+    let evs = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+    if(!evs || !evs.length) evs = [e];
+    for(const ce of evs){
+      const cq = evXY(ce);
+      drag.trail.push(toW(cq.x, cq.y));
+    }
+    render(); return;
+  }
+  if(drag.kind==='rotate'){
+    const dist = Math.hypot(q.x-drag.x0, q.y-drag.y0);
+    if(!drag.moved){
+      if(dist < 3) return;
+      snap_(); drag.moved = true;
+    }
+    const w = toW(q.x,q.y);
+    const ang1 = Math.atan2(w.y-drag.c.y, w.x-drag.c.x);
+    let deg = (drag.a0-ang1)*180/Math.PI;   /* 正＝反時計回り */
+    if(deg > 180) deg -= 360; else if(deg < -180) deg += 360;
+    if(!e.shiftKey){
+      const sn = Math.round(deg/15)*15;
+      if(Math.abs(deg-sn) <= 3) deg = sn;
+    }
+    applyRotationFrom(drag.from, drag.c, deg);
+    setRotAngleField((Math.round(deg*10)/10).toFixed(1));
+    build(); render(); return;
+  }
+  if(drag.kind==='handle'){
+    const a = S.paths[drag.p].anchors[drag.a];
+    const w = snapXY(toW(q.x,q.y), e.shiftKey);
+    a[drag.key] = {x:w.x, y:w.y};
+    if(!a.brk){                               /* 連結なら反対側を鏡に */
+      const other = drag.key==='hi' ? 'ho' : 'hi';
+      if(a[other]){
+        const len = Math.hypot(a[other].x-a.x, a[other].y-a.y);
+        const dx = a.x-w.x, dy = a.y-w.y, m = Math.hypot(dx,dy) || 1;
+        a[other] = {x:R2(a.x+dx/m*len), y:R2(a.y+dy/m*len)};
+      }
+    }
+    build(); render(); return;
+  }
+  if(drag.kind==='move'){
+    if(!drag.moved){ snap_(); drag.moved = true; }
+    const w = toW(q.x,q.y);
+    let dx = w.x-drag.gx.x, dy = w.y-drag.gx.y;
+    if(S.grid.snap && !e.shiftKey && drag.from.length){
+      const f0 = drag.from[0];
+      const t = snapXY({x:f0.x+dx, y:f0.y+dy}, false);
+      dx = t.x-f0.x; dy = t.y-f0.y;
+    }
+    for(const f of drag.from){
+      const a = S.paths[f.p].anchors[f.a];
+      const nx = R2(f.x+dx), ny = R2(f.y+dy);
+      if(a.hi){ a.hi = {x:R2(a.hi.x+nx-a.x), y:R2(a.hi.y+ny-a.y)}; }
+      if(a.ho){ a.ho = {x:R2(a.ho.x+nx-a.x), y:R2(a.ho.y+ny-a.y)}; }
+      a.x = nx; a.y = ny;
+    }
+    build(); render(); syncInsp(); return;
+  }
+  if(drag.kind==='add'){
+    if(Math.hypot(q.x-drag.x0, q.y-drag.y0) > 8) drag.moved = true;
+    if(drag.moved){
+      S.view.ox = drag.ox + (q.x-drag.x0); S.view.oy = drag.oy + (q.y-drag.y0); render();
+    }
+  }
+});
+
+/* 鉛筆：描いた軌跡をアンカー列に要約してパスにする。
+   アンカーは自動で「必要な場所にだけ」入る（fitStroke が許容誤差 2.5px 画面比で決める）。
+   スナップはかけない——フリーハンドの形そのものを保つため。あとから
+   「選択した点を吸着」で規則の上に載せ替えられる。 */
+function finishStroke(trail){
+  const tol = S.pencil.tol / S.view.s;
+  const f = K.fitStroke(trail, tol);
+  if(!f || f.points.length < 2){ toast('もう少し長く描いてください'); return; }
+  snap_();
+  const np = {closed:f.closed, fill:false,
+              anchors:f.points.map(p=>mkAnchor(p.x, p.y, 'spline'))};
+  if(S.paths.length===1 && !S.paths[0].anchors.length) S.paths[0] = np;
+  else S.paths.push(np);
+  genLast.idxs = [];
+  S.cur = S.paths.indexOf(np); S.sel = [];
+  build(); render(); syncInsp();
+}
+function endPtr(e){
+  if(!DRAWS(e.pointerType)){
+    const wasTwo = touches.size===2, still = pinch && !pinch.moved && performance.now()-pinch.t0<300;
+    touches.delete(e.pointerId);
+    if(touches.size<2){ if(wasTwo && still) undo(); pinch=null; }
+    if(touches.size===0){
+      /* シェイプ形成で指で面を触ったとき、何も起きないまま終わらせない。
+         この道具はペン＝選ぶ／指＝動かす の分担なので、そう伝える */
+      if(S.tool==='shapebuild' && drag && drag.kind==='pan' && !drag.multi && !wasTwo
+         && performance.now()-drag.t0 < 400
+         && Math.abs(S.view.ox-drag.ox) < 4 && Math.abs(S.view.oy-drag.oy) < 4)
+        toast('面は Apple Pencil で触ってください（指は画面を動かします）');
+      drag=null;
+    }
+    return;
+  }
+  if(drag){
+    if(drag.kind==='add' && !drag.moved && performance.now()-drag.t0 < 700)
+      addAnchor(toW(drag.x0, drag.y0));
+    if(drag.kind==='marquee' && marquee){
+      const x0=Math.min(marquee.x0,marquee.x1), x1=Math.max(marquee.x0,marquee.x1);
+      const y0=Math.min(marquee.y0,marquee.y1), y1=Math.max(marquee.y0,marquee.y1);
+      if(drag.mode==='path'){
+        /* V：アンカーが1つでも矩形に入っていれば、そのパスを丸ごと選ぶ */
+        const hitPaths = new Set();
+        for(let p=0;p<S.paths.length;p++) S.paths[p].anchors.forEach((a,i)=>{
+          const q=toS(a);
+          if(q.x>=x0&&q.x<=x1&&q.y>=y0&&q.y<=y1) hitPaths.add(p);
+        });
+        for(const p of hitPaths) S.paths[p].anchors.forEach((_,i)=>{
+          if(!selHas(p,i)) S.sel.push({p,a:i});
+        });
+      } else {
+        for(let p=0;p<S.paths.length;p++) S.paths[p].anchors.forEach((a,i)=>{
+          const q=toS(a);
+          if(q.x>=x0&&q.x<=x1&&q.y>=y0&&q.y<=y1&&!selHas(p,i)) S.sel.push({p,a:i});
+        });
+      }
+      syncInsp();
+    }
+    if(drag.kind==='shape' && ghost){
+      const w = Math.abs(ghost.x1-ghost.x0), h = Math.abs(ghost.y1-ghost.y0);
+      if(w>2 && h>2) addShape(Math.min(ghost.x0,ghost.x1), Math.min(ghost.y0,ghost.y1), w, h);
+    }
+    if(drag.kind==='draw') finishStroke(drag.trail);
+    if(drag.kind==='rotate'){
+      if(drag.moved){ syncInsp(); }
+      else {
+        const w = snapXY(toW(drag.x0, drag.y0), e.shiftKey);
+        S.rot.cx = w.x; S.rot.cy = w.y;
+        S.rot.sig = JSON.stringify(rotTargets());
+      }
+      setRotAngleField('0');
+    }
+  }
+  marquee = null; ghost = null; drag = null; render();
+}
+cv.addEventListener('pointerup', endPtr);
+cv.addEventListener('pointercancel', endPtr);
+
+/* トラックパッド：2本指スクロール＝画面移動、ピンチ＝拡大縮小（Figmaと同じ分け方） */
+cv.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const q = evXY(e);
+  if(e.ctrlKey || e.metaKey){
+    const ns = Math.max(0.1, Math.min(12, S.view.s*Math.exp(-e.deltaY*0.01)));
+    S.view.ox = q.x - (q.x-S.view.ox)*(ns/S.view.s);
+    S.view.oy = q.y - (q.y-S.view.oy)*(ns/S.view.s);
+    S.view.s = ns;
+  } else { S.view.ox -= e.deltaX; S.view.oy -= e.deltaY; }
+  render();
+}, {passive:false});
+
+/* =========================================================
+   編集
+   ========================================================= */
+function addAnchor(w){
+  snap_();
+  let P = S.paths[S.cur];
+  if(!P || P.closed){ S.paths.push({closed:false, fill:false, anchors:[]}); S.cur = S.paths.length-1; P = S.paths[S.cur]; }
+  const q = snapXY(w, false);
+  P.anchors.push(mkAnchor(q.x, q.y, 'spline'));
+  S.sel = [{p:S.cur, a:P.anchors.length-1}];
+  build(); render(); syncInsp();
+}
+function delSelected(){
+  if(!S.sel.length) return;
+  snap_();
+  /* 1点だけの削除なら、消したあと隣の点を選んでおく。
+     削除→削除→削除…と連続で消していけるように（2026-08-12 の要望） */
+  const single = S.sel.length===1 ? {ref:S.paths[S.sel[0].p], a:S.sel[0].a} : null;
+  const byPath = {};
+  for(const s of S.sel){ (byPath[s.p] = byPath[s.p] || []).push(s.a); }
+  const ps = Object.keys(byPath).map(Number).sort((a,b)=>b-a);
+  for(const p of ps){
+    const idx = byPath[p].sort((a,b)=>b-a);
+    for(const i of idx) S.paths[p].anchors.splice(i,1);
+    if(S.paths[p].anchors.length < 3) S.paths[p].closed = false;
+  }
+  S.paths = S.paths.filter(p=>p.anchors.length>0);
+  if(!S.paths.length) S.paths = [{closed:false, fill:false, anchors:[]}];
+  S.cur = Math.min(S.cur, S.paths.length-1);
+  S.sel = [];
+  if(single){
+    const np = S.paths.indexOf(single.ref);
+    if(np>=0 && single.ref.anchors.length){
+      S.cur = np;
+      S.sel = [{p:np, a:Math.min(single.a, single.ref.anchors.length-1)}];
+    }
+  }
+  build(); render(); syncInsp();
+}
+function setMode(mode){
+  if(!S.sel.length) return;
+  snap_();
+  for(const s of S.sel){
+    const a = anchorAt(s); if(!a) continue;
+    if(mode==='bezier' && a.mode!=='bezier'){
+      /* いま曲線が持っている接線をハンドルとして受け取る。こうすると形が飛ばない */
+      const c = (COMP[s.p]||[])[s.a] || {};
+      a.hi = c.hi ? {x:R2(c.hi.x), y:R2(c.hi.y)} : null;
+      a.ho = c.ho ? {x:R2(c.ho.x), y:R2(c.ho.y)} : null;
+      if(!a.hi && !a.ho){ a.hi = {x:a.x-30, y:a.y}; a.ho = {x:a.x+30, y:a.y}; }
+      a.brk = false;
+    }
+    if(mode==='spline'){ a.hi = null; a.ho = null; }
+    a.mode = mode;
+  }
+  build(); render(); syncInsp();
+}
+function setLink(v){
+  if(!S.sel.length) return;
+  snap_();
+  for(const s of S.sel){
+    const a = anchorAt(s); if(!a || a.mode!=='bezier') continue;
+    a.brk = (v==='broken');
+    if(!a.brk && a.hi && a.ho){                /* 連結に戻すとき出側に合わせる */
+      const len = Math.hypot(a.hi.x-a.x, a.hi.y-a.y);
+      const dx = a.x-a.ho.x, dy = a.y-a.ho.y, m = Math.hypot(dx,dy)||1;
+      a.hi = {x:R2(a.x+dx/m*len), y:R2(a.y+dy/m*len)};
+    }
+  }
+  build(); render(); syncInsp();
+}
+function finishPath(){
+  const P = S.paths[S.cur];
+  if(P && P.anchors.length){ S.paths.push({closed:false, fill:false, anchors:[]}); S.cur = S.paths.length-1; }
+  S.sel = []; build(); render(); syncInsp();
+}
+
+/* ---- 図形 ---- */
+const KAPPA = 0.5522847498;
+function addShape(x,y,w,h){
+  snap_();
+  const A = [];
+  if(S.tool==='rect'){
+    [[x,y],[x+w,y],[x+w,y+h],[x,y+h]].forEach(p=>{
+      const a = mkAnchor(p[0],p[1],'bezier'); A.push(a);
+    });
+  } else if(S.tool==='ellipse'){
+    const cx=x+w/2, cy=y+h/2, rx=w/2, ry=h/2, kx=rx*KAPPA, ky=ry*KAPPA;
+    const pts=[[cx,y,-kx,0,kx,0],[x+w,cy,0,-ky,0,ky],[cx,y+h,kx,0,-kx,0],[x,cy,0,ky,0,-ky]];
+    pts.forEach(p=>{
+      const a = mkAnchor(p[0],p[1],'bezier');
+      a.hi = {x:R2(p[0]+p[2]), y:R2(p[1]+p[3])};
+      a.ho = {x:R2(p[0]+p[4]), y:R2(p[1]+p[5])};
+      A.push(a);
+    });
+  } else {
+    const n = Math.max(3, Math.min(24, S.sides|0));
+    const cx=x+w/2, cy=y+h/2, rx=w/2, ry=h/2;
+    for(let i=0;i<n;i++){
+      const th = -Math.PI/2 + i/n*6.2831853;
+      A.push(mkAnchor(cx+Math.cos(th)*rx, cy+Math.sin(th)*ry, 'bezier'));
+    }
+  }
+  S.paths.push({closed:true, fill:false, anchors:A});
+  S.cur = S.paths.length-1;
+  S.sel = A.map((_,i)=>({p:S.cur, a:i}));
+  build(); render(); syncInsp();
+}
+
+/* =========================================================
+   書き出し・クリップボード
+   ========================================================= */
+function contentBox(paths){
+  let mx=1e9,Mx=-1e9,my=1e9,My=-1e9, any=false;
+  const add = p => { any=true; mx=Math.min(mx,p.x); Mx=Math.max(Mx,p.x);
+                     my=Math.min(my,p.y); My=Math.max(My,p.y); };
+  for(const pi of paths){
+    const segs = BEZ[pi]||[];
+    for(const s of segs){ add(s.p0); add(s.c1); add(s.c2); add(s.p1); }
+    if(!segs.length) for(const a of S.paths[pi].anchors) add(a);
+  }
+  return any ? {mx,Mx,my,My} : null;
+}
+function pathD(segs, closed, ox, oy){
+  if(!segs.length) return '';
+  let d = `M ${R2(segs[0].p0.x+ox)} ${R2(segs[0].p0.y+oy)}`, prev = segs[0].p0;
+  for(const s of segs){
+    if(Math.hypot(s.p0.x-prev.x, s.p0.y-prev.y) > 1e-6)
+      d += ` M ${R2(s.p0.x+ox)} ${R2(s.p0.y+oy)}`;
+    d += ` C ${R2(s.c1.x+ox)} ${R2(s.c1.y+oy)} ${R2(s.c2.x+ox)} ${R2(s.c2.y+oy)}`
+      +  ` ${R2(s.p1.x+ox)} ${R2(s.p1.y+oy)}`;
+    prev = s.p1;
+  }
+  return d + (closed ? ' Z' : '');
+}
+function buildSVG(which){
+  const list = which && which.length ? which : S.paths.map((_,i)=>i);
+  const use = list.filter(i=>(BEZ[i]||[]).length);
+  if(!use.length) return null;
+  const b = contentBox(use); if(!b) return null;
+  const pad = 20, w = R2(b.Mx-b.mx+pad*2), h = R2(b.My-b.my+pad*2);
+  const ox = pad-b.mx, oy = pad-b.my;
+  /* 色は上部バーの色見本（塗り・線）。地色（背景）は書き出さない（006 §8: 貼り先で白い板が絵を隠すため） */
+  const CF = S.col.fill, CS = S.col.stroke;
+  const strokeAttr = CS==='none' ? '' : ` stroke="${CS}" stroke-width="1"`;
+  const body = use.flatMap(i=>{
+    const p = S.paths[i];
+    const filled = p.fill && CF!=='none';
+    if(filled && p.closed && p.anchors.length>=3)
+      return [`  <path d="${pathD(BEZ[i], true, ox, oy)}" fill="${CF}" fill-rule="evenodd"/>`];
+    if(filled && !p.closed && p.anchors.length>=3){
+      /* 開いた塗りパス：ループだけの塗り（evenodd・下）＋全曲線の線（上）の2要素。
+         ループが無ければ線だけ（端点どうしを結んだ領域は書き出さない） */
+      const out = [];
+      const loops = LOOPS[i];
+      if(loops && loops.length){
+        const d = loops.map(lp=>pathD(lp, true, ox, oy)).join(' ');
+        out.push(`  <path d="${d}" fill="${CF}" fill-rule="evenodd"/>`);
+      }
+      out.push(`  <path d="${pathD(BEZ[i], false, ox, oy)}" fill="none"${strokeAttr}/>`);
+      return out;
+    }
+    return [`  <path d="${pathD(BEZ[i], p.closed, ox, oy)}" fill="none"${strokeAttr}/>`];
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n`
+       + body.join('\n') + `\n</svg>\n`;
+}
+function selectedPaths(){
+  const set = new Set(S.sel.map(s=>s.p));
+  return set.size ? [...set] : [];
+}
+function exportSVG(){
+  const svg = buildSVG(selectedPaths());
+  if(!svg){ toast('書き出すものがありません', {kind:'error'}); return; }
+  const d = new Date(), z = n=>String(n).padStart(2,'0');
+  const name = `spline_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}.svg`;
+  /* iPadでは a[download] が効かないことがある（Safari、とくにファイルから直接開いたとき）。
+     指で触る端末に限って共有シートに渡す。Macの挙動は変えない */
+  if(COARSE && navigator.canShare){
+    try{
+      const file = new File([svg], name, {type:'image/svg+xml'});
+      if(navigator.canShare({files:[file]})){
+        navigator.share({files:[file]})
+          .then(()=>toast('SVGを書き出しました'))
+          .catch(err=>{ if(!err || err.name!=='AbortError') downloadSVG(svg, name); });
+        return;
+      }
+    }catch(_){}
+  }
+  downloadSVG(svg, name);
+}
+function downloadSVG(svg, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+  a.download = name;
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  toast('SVGを書き出しました');
+}
+/* ⌘C・「SVGをコピー」。選択があれば選択したパス、無ければ全部。地色は含めない（006 §8） */
+function copySVG(){
+  const svg = buildSVG(selectedPaths());
+  if(!svg){ toast('コピーするものがありません', {kind:'error'}); return Promise.resolve(); }
+  return Studio.copySVG(svg).then(
+    r => toast(Studio.copyResultMessage(r)),
+    err => toast((err && err.message) || 'コピーできませんでした', {kind:'error', sticky:true}));
+}
+
+/* ---- SVG を読み込む（Illustrator から貼り付ける） ---- */
+function parsePathD(d){
+  const out = [];                              /* [{closed, pts:[{x,y,hi,ho}]}] */
+  const tok = d.match(/[A-Za-z]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || [];
+  let i=0, cx=0, cy=0, sx=0, sy=0, cmd='', prevC2=null, cur=null;
+  const num = ()=>parseFloat(tok[i++]);
+  const push = (x,y)=>{ cur.pts.push({x,y,hi:null,ho:null}); };
+  const startSub = (x,y)=>{ cur = {closed:false, pts:[]}; out.push(cur); push(x,y); sx=x; sy=y; };
+  while(i<tok.length){
+    if(/[A-Za-z]/.test(tok[i])) cmd = tok[i++];
+    if(i>tok.length) break;
+    const rel = cmd===cmd.toLowerCase(), C = cmd.toUpperCase();
+    if(C==='M'){
+      let x=num(), y=num(); if(rel){x+=cx;y+=cy}
+      startSub(x,y); cx=x; cy=y; prevC2=null; cmd = rel?'l':'L';
+    } else if(C==='L'){
+      let x=num(), y=num(); if(rel){x+=cx;y+=cy}
+      if(!cur) startSub(cx,cy);
+      push(x,y); cx=x; cy=y; prevC2=null;
+    } else if(C==='H'){ let x=num(); if(rel)x+=cx; if(!cur)startSub(cx,cy); push(x,cy); cx=x; prevC2=null; }
+    else if(C==='V'){ let y=num(); if(rel)y+=cy; if(!cur)startSub(cx,cy); push(cx,y); cy=y; prevC2=null; }
+    else if(C==='C' || C==='S'){
+      let x1,y1;
+      if(C==='C'){ x1=num(); y1=num(); if(rel){x1+=cx;y1+=cy} }
+      else { x1 = prevC2 ? 2*cx-prevC2.x : cx; y1 = prevC2 ? 2*cy-prevC2.y : cy; }
+      let x2=num(), y2=num(), x=num(), y=num();
+      if(rel){ x2+=cx; y2+=cy; x+=cx; y+=cy; }
+      if(!cur) startSub(cx,cy);
+      cur.pts[cur.pts.length-1].ho = {x:x1,y:y1};
+      push(x,y); cur.pts[cur.pts.length-1].hi = {x:x2,y:y2};
+      cx=x; cy=y; prevC2={x:x2,y:y2};
+    } else if(C==='Q' || C==='T'){
+      let qx,qy;
+      if(C==='Q'){ qx=num(); qy=num(); if(rel){qx+=cx;qy+=cy} }
+      else { qx=cx; qy=cy; }
+      let x=num(), y=num(); if(rel){x+=cx;y+=cy}
+      if(!cur) startSub(cx,cy);
+      cur.pts[cur.pts.length-1].ho = {x:cx+2/3*(qx-cx), y:cy+2/3*(qy-cy)};
+      push(x,y); cur.pts[cur.pts.length-1].hi = {x:x+2/3*(qx-x), y:y+2/3*(qy-y)};
+      cx=x; cy=y; prevC2=null;
+    } else if(C==='Z'){
+      if(cur){ cur.closed = true;
+        const f=cur.pts[0], l=cur.pts[cur.pts.length-1];
+        if(cur.pts.length>1 && Math.hypot(f.x-l.x,f.y-l.y)<1e-6){ f.hi = l.hi; cur.pts.pop(); }
+      }
+      cx=sx; cy=sy; prevC2=null; cur=null;
+    } else { i++; }                            /* A などは読み飛ばす */
+  }
+  return out.filter(s=>s.pts.length>=2);
+}
+/* SVG の transform 属性（matrix / translate / scale / rotate / skewX / skewY）→ [a,b,c,d,e,f] */
+const mulM = (m,n)=>[m[0]*n[0]+m[2]*n[1], m[1]*n[0]+m[3]*n[1], m[0]*n[2]+m[2]*n[3], m[1]*n[2]+m[3]*n[3],
+                     m[0]*n[4]+m[2]*n[5]+m[4], m[1]*n[4]+m[3]*n[5]+m[5]];
+const SVG_NUM = /[-+]?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/gi;
+function parseTransform(str){
+  let m = [1,0,0,1,0,0];
+  const re = /(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/g;
+  let t;
+  while((t = re.exec(str||''))){
+    const v = (t[2].match(SVG_NUM)||[]).map(Number);
+    let n = null;
+    if(t[1]==='matrix' && v.length>=6) n = v.slice(0,6);
+    else if(t[1]==='translate') n = [1,0,0,1,v[0]||0,v[1]||0];
+    else if(t[1]==='scale'){ const sx = v.length ? v[0] : 1, sy = v.length>1 ? v[1] : sx; n = [sx,0,0,sy,0,0]; }
+    else if(t[1]==='rotate'){
+      const a = (v[0]||0)*Math.PI/180, c = Math.cos(a), sn = Math.sin(a), cx = v[1]||0, cy = v[2]||0;
+      n = [c,sn,-sn,c, cx-c*cx+sn*cy, cy-sn*cx-c*cy];
+    }
+    else if(t[1]==='skewX') n = [1,0,Math.tan((v[0]||0)*Math.PI/180),1,0,0];
+    else if(t[1]==='skewY') n = [1,Math.tan((v[0]||0)*Math.PI/180),0,1,0,0];
+    if(n) m = mulM(m, n);
+  }
+  return m;
+}
+/* 要素から祖先をたどった変形（ルート側から掛ける） */
+function ctmOf(el){
+  const chain = [];
+  for(let n=el; n && n.nodeType===1; n=n.parentNode) chain.push(n);
+  let m = [1,0,0,1,0,0];
+  for(let i=chain.length-1;i>=0;i--) m = mulM(m, parseTransform(chain[i].getAttribute('transform')));
+  return m;
+}
+/* path 以外の図形（rect / circle / ellipse / line / polygon / polyline）も d にして読む */
+function shapeToD(el){
+  const tag = el.localName, n = a => parseFloat(el.getAttribute(a)) || 0;
+  if(tag==='path') return el.getAttribute('d') || '';
+  if(tag==='rect'){
+    const x=n('x'), y=n('y'), w=n('width'), h=n('height');
+    return (w>0 && h>0) ? `M${x} ${y}H${x+w}V${y+h}H${x}Z` : '';
+  }
+  if(tag==='circle' || tag==='ellipse'){
+    const cx=n('cx'), cy=n('cy'), rx = tag==='circle' ? n('r') : n('rx'), ry = tag==='circle' ? rx : n('ry');
+    if(!(rx>0 && ry>0)) return '';
+    const k = 0.5522847498, kx = rx*k, ky = ry*k;
+    return `M${cx+rx} ${cy}C${cx+rx} ${cy+ky} ${cx+kx} ${cy+ry} ${cx} ${cy+ry}`
+         + `C${cx-kx} ${cy+ry} ${cx-rx} ${cy+ky} ${cx-rx} ${cy}`
+         + `C${cx-rx} ${cy-ky} ${cx-kx} ${cy-ry} ${cx} ${cy-ry}`
+         + `C${cx+kx} ${cy-ry} ${cx+rx} ${cy-ky} ${cx+rx} ${cy}Z`;
+  }
+  if(tag==='line') return `M${n('x1')} ${n('y1')}L${n('x2')} ${n('y2')}`;
+  if(tag==='polygon' || tag==='polyline'){
+    const v = el.getAttribute('points') ? el.getAttribute('points').match(SVG_NUM) || [] : [];
+    if(v.length < 4) return '';
+    let d = 'M'+v[0]+' '+v[1];
+    for(let i=2;i+1<v.length;i+=2) d += 'L'+v[i]+' '+v[i+1];
+    return d + (tag==='polygon' ? 'Z' : '');
+  }
+  return '';
+}
+function applyM(m, p){ return p && {x: m[0]*p.x + m[2]*p.y + m[4], y: m[1]*p.x + m[3]*p.y + m[5]}; }
+function importSVGText(txt){
+  const items = [];                            /* [{d, m}] d属性の直読＋変形（サンプリングしない・006 §8） */
+  const doc = new DOMParser().parseFromString(txt, 'image/svg+xml');
+  if(doc && !doc.querySelector('parsererror')){
+    doc.querySelectorAll('path,rect,circle,ellipse,line,polygon,polyline').forEach(el=>{
+      if(el.closest('defs,clipPath,mask,symbol,pattern,marker')) return;
+      const d = shapeToD(el);
+      if(d) items.push({d, m: ctmOf(el)});
+    });
+  }
+  if(!items.length){ (txt.match(/\sd="([^"]+)"/g)||[]).forEach(m=>items.push({d:m.slice(4,-1), m:[1,0,0,1,0,0]})); }
+  if(!items.length && /^[\sMmLlHhVvCcSsQqTtAaZz0-9.,\-+eE]+$/.test(txt.trim())) items.push({d:txt.trim(), m:[1,0,0,1,0,0]});
+  if(!items.length) return 0;
+  const made = [];
+  for(const it of items) for(const sub of parsePathD(it.d)){
+    const anchors = sub.pts.map(p=>{
+      const q = applyM(it.m, p), hi = applyM(it.m, p.hi), ho = applyM(it.m, p.ho);
+      const a = mkAnchor(q.x, q.y, 'bezier');
+      a.hi = hi ? {x:R2(hi.x), y:R2(hi.y)} : null;
+      a.ho = ho ? {x:R2(ho.x), y:R2(ho.y)} : null;
+      return a;
+    });
+    made.push({closed:sub.closed, fill:false, anchors});
+  }
+  if(!made.length) return 0;
+  snap_();
+  const base = S.paths.length;
+  for(const m of made) S.paths.push(m);
+  if(S.paths[0] && !S.paths[0].anchors.length) S.paths.splice(0,1);
+  S.cur = S.paths.length-1;
+  S.sel = [];
+  for(let p=0;p<S.paths.length;p++) if(p>=base-(S.paths.length<base+made.length?1:0))
+    S.paths[p].anchors.forEach((_,a)=>{ if(p>=S.paths.length-made.length) S.sel.push({p,a}); });
+  build(); fitView(); render(); syncInsp();
+  return made.length;
+}
+function reportImport(n){
+  if(n) toast(`${n}本のパスを読み込みました`);
+  else toast('SVGのパスが見つかりませんでした', {kind:'error'});
+}
+/* 「ペースト」ボタン（⌘V の無い iPad 用）。キーの ⌘V は Studio.keys の pasteSVG が受ける */
+async function pasteFromClipboard(){
+  let txt = '';
+  try{ txt = await navigator.clipboard.readText(); }
+  catch(err){ toast('クリップボードを読めません', {kind:'error'}); return; }
+  reportImport(importSVGText(txt));
+}
+/* パスのデータ（d属性の中身だけ）の貼り付け。kit の ⌘V は SVG のタグを含む文字列だけを受けるので、
+   生のパスデータはここで先に受ける（Studio.keys より前に登録する） */
+addEventListener('paste', e=>{
+  if(document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+  const t = e.clipboardData && e.clipboardData.getData('text/plain');
+  if(!t || /<[a-z]/i.test(t) || !/^[\sMmLlHhVvCcSsQqTtAaZz0-9.,\-+eE]+$/.test(t.trim())) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  reportImport(importSVGText(t));
+});
+
+
+/* =========================================================
+   シェイプ形成 — 交わったパスを面に分けて、結合／削除する
+
+   面を見つける計算は shape.js（DOMに触らない・_test/verify-shape.js が検証）。
+   ここはその結果を画面に出して、印を付けて、確定するところ。
+
+   確定すると、対象のパスは「交わってできた面」ごとのパスに置き換わる
+   （Illustrator のシェイプ形成ツールと同じ考え方）。結合した面はひとつのパスになり、
+   消した面は無くなり、触っていない面は面ごとにパスとして残る。
+   面を囲まない線（はみ出した枝）は開いたパスとして残す。
+   ========================================================= */
+let DIV = null;             /* いまの分け方（shape.js の戻り値） */
+let MARK = new Map();       /* 面のid → 'join'（結合する）| 'del'（消す） */
+let HOVER = null;           /* いまカーソルが乗っている面 */
+let HOVERXY = null;         /* カーソルの画面座標（吹き出しを出す位置） */
+let SHAPE_TARGETS = [];     /* 分ける対象にしたパスの番号 */
+
+function shapeTargets(){
+  const set = new Set(S.sel.map(s=>s.p));
+  return (set.size ? [...set] : S.paths.map((_,i)=>i)).filter(i => (BEZ[i]||[]).length);
+}
+function shapeRefresh(){
+  MARK.clear(); HOVER = null;
+  SHAPE_TARGETS = shapeTargets();
+  try{
+    DIV = SHAPE_TARGETS.length
+        ? ShapeDivide.divide(SHAPE_TARGETS.map(i=>({segs:BEZ[i], closed:S.paths[i].closed})))
+        : null;
+  }catch(err){
+    DIV = null;
+    toast('面を見つけられませんでした');
+    console.error(err);
+  }
+  syncShapeInfo();
+}
+function syncShapeInfo(){
+  const el = document.getElementById('shapeInfo');
+  if(!el) return;
+  let join=0, del=0;
+  MARK.forEach(v=>{ if(v==='join') join++; else del++; });
+  const faces = DIV ? DIV.faces.length : 0;
+  el.textContent = `見つかった面 ${faces}　／　結合する面 ${join}　／　消す面 ${del}`;
+  document.getElementById('bShapeApply').disabled = !(join || del);
+  document.getElementById('bShapeReset').disabled = !(join || del);
+}
+function shapeFaceAt(sx, sy){
+  if(!DIV) return null;
+  const w = toW(sx, sy);
+  return ShapeDivide.pickFace(DIV, w.x, w.y);
+}
+/* クリックしたときに付ける印。Optionはチップの設定を一時的に裏返す */
+function shapeWant(alt){
+  const base = S.shape.mode;
+  if(!alt) return base;
+  return base==='join' ? 'del' : 'join';
+}
+function shapeClick(sx, sy, alt){
+  if(!DIV || !DIV.faces.length){
+    toast('面がありません'); return;
+  }
+  const f = shapeFaceAt(sx, sy);
+  if(!f){ toast('そこには面がありません'); return; }
+  const want = shapeWant(alt);
+  if(MARK.get(f.id)===want) MARK.delete(f.id); else MARK.set(f.id, want);
+  syncShapeInfo(); render();
+}
+/* 指で触る端末では Option キーが無いので、結合／消すはチップで切り替える。
+   面を触るのは Apple Pencil（指は画面移動のまま）。 */
+function setShapeMode(m){
+  S.shape.mode = m;
+  document.querySelectorAll('[data-shapemode]').forEach(b=>
+    b.setAttribute('aria-pressed', String(b.dataset.shapemode===m)));
+  render();
+}
+
+/* ---- 描く ---- */
+let hatchPat = null;
+function hatch(){
+  if(hatchPat) return hatchPat;
+  const c = document.createElement('canvas'); c.width = c.height = 8;
+  const g = c.getContext('2d');
+  g.strokeStyle = '#B4342A'; g.lineWidth = 1.4;
+  g.beginPath(); g.moveTo(-2,10); g.lineTo(10,-2); g.moveTo(-2,2); g.lineTo(2,-2);
+  g.moveTo(6,10); g.lineTo(10,6); g.stroke();
+  hatchPat = ctx.createPattern(c, 'repeat');
+  return hatchPat;
+}
+function traceFace(f){
+  ctx.beginPath();
+  const put = geom=>{
+    let prev = null;
+    for(const s of geom){
+      if(!prev || Math.hypot(s.p0.x-prev.x, s.p0.y-prev.y) > 1e-6){
+        const a = toS(s.p0); ctx.moveTo(a.x, a.y);
+      }
+      const c1=toS(s.c1), c2=toS(s.c2), p1=toS(s.p1);
+      ctx.bezierCurveTo(c1.x,c1.y,c2.x,c2.y,p1.x,p1.y);
+      prev = s.p1;
+    }
+    ctx.closePath();
+  };
+  put(f.outer);
+  for(const h of (f.holes||[])) put(h);
+}
+/* 面の上に置く文字。色だけで伝えないための札（背景付きで必ず読めるようにする） */
+function drawChip(sx, sy, text, tone){
+  ctx.save();
+  ctx.font = '700 12px "Noto Sans JP",-apple-system,"Hiragino Sans",sans-serif';
+  const w = ctx.measureText(text).width + 12, h = 20;
+  const x = Math.round(sx - w/2), y = Math.round(sy - h/2);
+  ctx.fillStyle = tone==='del' ? '#B4342A' : '#0353AA';
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x, y, w, h, 4); else ctx.rect(x, y, w, h);
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + w/2, y + h/2 + 0.5);
+  ctx.restore();
+}
+function drawShapeTool(){
+  if(!DIV) return;
+  ctx.save();
+  /* 印を付けた面 */
+  for(const f of DIV.faces){
+    const m = MARK.get(f.id);
+    if(!m) continue;
+    traceFace(f);
+    if(m==='join'){ ctx.fillStyle = '#0353AA22'; ctx.fill('evenodd'); }
+    else          { ctx.fillStyle = hatch();     ctx.fill('evenodd'); }
+    ctx.strokeStyle = m==='join' ? '#0353AA' : '#B4342A';
+    ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  /* カーソルが乗っている面 */
+  if(HOVER){
+    traceFace(HOVER);
+    ctx.fillStyle = '#0353AA10'; ctx.fill('evenodd');
+    ctx.setLineDash([5,3]); ctx.lineWidth = 2;
+    ctx.strokeStyle = '#0353AA'; ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  /* 札は面の重なりに埋もれないよう最後にまとめて */
+  for(const f of DIV.faces){
+    const m = MARK.get(f.id);
+    if(!m) continue;
+    const lb = ShapeDivide.labelOf(f);
+    const q = toS({x:lb[0], y:lb[1]});
+    drawChip(q.x, q.y, m==='join' ? '結合する' : '消す', m);
+  }
+  if(HOVER && HOVERXY){
+    const want = MARK.get(HOVER.id);
+    const next = shapeWant(HOVERXY.alt);
+    const msg = want===next ? '　クリックで印を外す　'
+              : (next==='join' ? '　クリックで結合する面にする　' : '　クリックで消す面にする　');
+    drawChip(HOVERXY.x, HOVERXY.y - 26, msg.trim(), next);
+  }
+  ctx.restore();
+}
+
+/* ---- 確定 ---- */
+/* 3次ベジェ区間の列を、このアプリのアンカー列にする。
+   全部ベジェ点にするので形はそのまま出る（切った後も点ごとに種類を切り替えられる）。 */
+function geomToAnchors(geom, closed){
+  let g = geom.slice();
+  /* 閉じた形が1区間だけだと、アンカーが1つになって曲線を組み直せない。半分に割る */
+  if(closed && g.length===1){
+    const s = K.splitBez(g[0], 0.5);
+    g = [s.left, s.right];
+  }
+  const n = g.length, A = [];
+  for(let i=0;i<n;i++){
+    const s = g[i];
+    const a = mkAnchor(s.p0.x, s.p0.y, 'bezier');
+    a.ho = {x:R2(s.c1.x), y:R2(s.c1.y)};
+    if(i>0)            a.hi = {x:R2(g[i-1].c2.x), y:R2(g[i-1].c2.y)};
+    else if(closed)    a.hi = {x:R2(g[n-1].c2.x), y:R2(g[n-1].c2.y)};
+    A.push(a);
+  }
+  if(!closed){
+    const s = g[n-1];
+    const a = mkAnchor(s.p1.x, s.p1.y, 'bezier');
+    a.hi = {x:R2(s.c2.x), y:R2(s.c2.y)};
+    A.push(a);
+  }
+  /* 入りと出のハンドルが一直線でなければ「分割」にする（イラレの角の点と同じ扱い） */
+  for(const a of A){
+    if(!a.hi || !a.ho){ a.brk = false; continue; }
+    const ux = a.x-a.hi.x, uy = a.y-a.hi.y, vx = a.ho.x-a.x, vy = a.ho.y-a.y;
+    const lu = Math.hypot(ux,uy), lv = Math.hypot(vx,vy);
+    a.brk = (lu>1e-9 && lv>1e-9) ? Math.abs(ux*vy - uy*vx)/(lu*lv) > 2e-3 : false;
+  }
+  return A;
+}
+function applyShape(){
+  if(!DIV){ toast('分ける対象がありません'); return; }
+  let join=0, del=0;
+  MARK.forEach(v=>{ if(v==='join') join++; else del++; });
+  if(!join && !del){ toast('面に印を付けてください'); return; }
+
+  const joinIds = [];
+  MARK.forEach((v,k)=>{ if(v==='join') joinIds.push(k); });
+  const made = [];
+  let holeCount = 0;
+  const pushShape = (sh, fill)=>{
+    if(sh.outer && sh.outer.length) made.push({closed:true, fill:!!fill, anchors:geomToAnchors(sh.outer, true)});
+    for(const h of (sh.holes||[])){
+      holeCount++;
+      made.push({closed:true, fill:false, anchors:geomToAnchors(h, true)});
+    }
+  };
+  /* 結合した面：隣どうしをまとめて、内側の線を落とす */
+  for(const group of ShapeDivide.groupsOf(DIV, joinIds))
+    for(const sh of ShapeDivide.unionFaces(group)) pushShape(sh, true);
+  /* 触っていない面：面ごとにパスとして残す。
+     元が塗ってあった形の中にある面は塗りを引き継ぐ（勝手に線だけにしない） */
+  const filled = SHAPE_TARGETS
+    .filter(i => S.paths[i].fill && (BEZ[i]||[]).length)
+    .map(i => ShapeDivide.polyOf(BEZ[i], 1));
+  for(const f of DIV.faces){
+    if(MARK.has(f.id)) continue;
+    const p = f.inside;
+    const wasFilled = filled.some(poly => ShapeDivide.inRings([poly], p[0], p[1]));
+    pushShape({outer:f.outer, holes:f.holes}, wasFilled);
+  }
+  /* 面を囲まない線（はみ出した枝）は開いたパスとして残す */
+  for(const g of DIV.strays)
+    if(g.length) made.push({closed:false, fill:false, anchors:geomToAnchors(g, false)});
+
+  if(!made.length){ toast('作れる形がありませんでした'); return; }
+  snap_();
+  const drop = new Set(SHAPE_TARGETS);
+  S.paths = S.paths.filter((_,i)=>!drop.has(i)).concat(made);
+  S.cur = S.paths.length-1; S.sel = [];
+  build(); render(); syncInsp(); syncBar();
+  toast(holeCount
+    ? `${made.length}本のパスにしました（穴の輪郭 ${holeCount}本は別のパスです）`
+    : `${made.length}本のパスにしました`);
+}
+
+/* =========================================================
+   画面の同期
+   ========================================================= */
+/* 結果と失敗だけを出す（状態の知らせは出さない）。表示は kit の Studio.toast */
+function toast(m, o){ Studio.toast(m, o); }
+function setTool(t){
+  S.tool = t;
+  document.querySelectorAll('[data-tool]').forEach(b=>
+    b.setAttribute('aria-pressed', String(b.dataset.tool===t)));
+  cv.style.cursor = (t==='select' || t==='direct') ? 'default' : 'crosshair';
+  syncToolOptions();
+  if(t==='rotate') ensureRotCenter();
+  if(t==='shapebuild') shapeRefresh(); else { DIV=null; MARK.clear(); HOVER=null; }
+  render();
+}
+/* 「道具の設定」セクション：選んだ道具に対応する行だけ出す。該当ゼロならセクションごと隠す */
+function syncToolOptions(){
+  const showSides = S.tool==='poly', showTol = S.tool==='pencil', showRot = S.tool==='rotate';
+  const showShape = S.tool==='shapebuild';
+  document.getElementById('fRowSides').classList.toggle('off', !showSides);
+  document.getElementById('fRowPencilTol').classList.toggle('off', !showTol);
+  document.getElementById('fRowRotAngle').classList.toggle('off', !showRot);
+  document.getElementById('fRowShape').classList.toggle('off', !showShape);
+  document.getElementById('secToolOpt').classList.toggle('off',
+    !(showSides || showTol || showRot || showShape));
+}
+function syncBar(){
+  document.getElementById('bUndo').disabled = !history.length;
+  document.getElementById('bRedo').disabled = !future.length;
+  const P = S.paths[S.cur];
+  document.getElementById('bClose').disabled = !P || P.closed || P.anchors.length<3;
+}
+function syncInsp(){
+  syncFillBtn(); syncBetweenBtn(); syncCutBtn(); syncJoinBtn();
+  const sec = document.getElementById('secSel');
+  if(!S.sel.length){ sec.classList.add('off'); syncBar(); return; }
+  sec.classList.remove('off');
+  const modes = new Set(S.sel.map(s=>{const a=anchorAt(s); return a?a.mode:null}));
+  const m = modes.size===1 ? [...modes][0] : null;
+  document.querySelectorAll('#segMode button').forEach(b=>
+    b.setAttribute('aria-pressed', String(b.dataset.v===m)));
+  const anyBez = S.sel.some(s=>{const a=anchorAt(s); return a && a.mode==='bezier'});
+  document.querySelectorAll('#segLink button').forEach(b=>{
+    b.disabled = !anyBez;
+    const brk = S.sel.every(s=>{const a=anchorAt(s); return a && a.brk});
+    b.setAttribute('aria-pressed', String(anyBez && (b.dataset.v==='broken')===brk));
+  });
+  const one = oneSel(), a = one && anchorAt(one);
+  document.getElementById('fRowX').classList.toggle('off', !a);
+  document.getElementById('fRowY').classList.toggle('off', !a);
+  if(a){ apiX.show(a.x); apiY.show(a.y); }
+  syncBar();
+}
+/* 旧: キャンバス左下に重なっていた状態表示。#info の <dl> へ移した（キャンバス上の文字は廃止） */
+function syncHint(){
+  const total = S.paths.reduce((s,p)=>s+p.anchors.length, 0);
+  const tn = {pen:'ペン', pencil:'鉛筆', select:'選択', direct:'ダイレクト選択', rect:'長方形', ellipse:'楕円形', poly:'多角形', rotate:'回転', shapebuild:'シェイプ形成'}[S.tool];
+  const kd = Grid.kinds.find(k=>k.id===S.grid.kind) || {};
+  document.getElementById('iTool').textContent = tn;
+  document.getElementById('iPaths').textContent = S.paths.filter(p=>p.anchors.length).length;
+  document.getElementById('iPoints').textContent = total;
+  document.getElementById('iSel').textContent = S.sel.length;
+  document.getElementById('iGrid').textContent = S.grid.on ? kd.label : 'オフ';
+}
+
+/* ---- バー ---- */
+document.querySelectorAll('[data-tool]').forEach(b=> b.onclick = ()=>setTool(b.dataset.tool));
+document.querySelectorAll('[data-shapemode]').forEach(b=> b.onclick = ()=>setShapeMode(b.dataset.shapemode));
+document.getElementById('bShapeApply').onclick = applyShape;
+document.getElementById('bShapeReset').onclick = ()=>{ MARK.clear(); syncShapeInfo(); render(); };
+document.getElementById('bClose').onclick = ()=>{
+  const P = S.paths[S.cur];
+  if(!P || P.closed || P.anchors.length<3) return;
+  snap_(); P.closed = true; build(); render(); syncBar();
+};
+document.getElementById('bGrid').onclick = e=>{
+  S.grid.on = e.currentTarget.getAttribute('aria-pressed')!=='true';
+  e.currentTarget.setAttribute('aria-pressed', String(S.grid.on)); render();
+};
+document.getElementById('bSnap').onclick = e=>{
+  S.grid.snap = e.currentTarget.getAttribute('aria-pressed')!=='true';
+  e.currentTarget.setAttribute('aria-pressed', String(S.grid.snap));
+  if(S.grid.snap && !S.grid.on){ S.grid.on = true;
+    document.getElementById('bGrid').setAttribute('aria-pressed','true'); }
+  render();
+};
+function toggleAnchors(){
+  S.show.anchors = !S.show.anchors;
+  document.getElementById('bAnchors').setAttribute('aria-pressed', String(S.show.anchors));
+  render();
+}
+document.getElementById('bAnchors').onclick = toggleAnchors;
+/* 塗りはパスごとのプロパティ。対象は「選択中のアンカーが属するパス」。
+   選択が無ければ全パス（アンカー3点以上）が対象になる。 */
+function fillTargets(){
+  if(S.sel.length) return [...new Set(S.sel.map(s=>s.p))];
+  return S.paths.map((_,i)=>i).filter(i=>S.paths[i].anchors.length>=3);
+}
+function syncFillBtn(){
+  const targets = fillTargets();
+  const any = targets.some(p=>S.paths[p] && S.paths[p].fill);
+  document.getElementById('bFill').setAttribute('aria-pressed', String(targets.length>0 && any));
+}
+document.getElementById('bFill').onclick = ()=>{
+  const targets = fillTargets();
+  if(!targets.length){ toast('塗るパスがありません'); return; }
+  const anyUnfilled = targets.some(p=>!S.paths[p].fill);
+  snap_();
+  for(const p of targets) S.paths[p].fill = anyUnfilled;
+  build(); render(); syncInsp();
+};
+function selectAll(){
+  S.sel = [];
+  for(let p=0;p<S.paths.length;p++) S.paths[p].anchors.forEach((_,a)=>S.sel.push({p,a}));
+  render(); syncInsp();
+}
+document.getElementById('bAll').onclick = selectAll;
+document.getElementById('bPaste').onclick = pasteFromClipboard;
+/* 「2本のパスの間を閉じて塗る」：開いた2つのパスを、片方を逆順にしてつなぎ、間の領域を塗る1枚の閉パスにする。
+   元の2パスは残す（新しい形を追加するだけ）。 */
+function betweenTargets(){
+  const set = new Set(S.sel.map(s=>s.p));
+  if(set.size!==2) return null;
+  const ps = [...set];
+  if(ps.some(p=>!S.paths[p] || S.paths[p].closed)) return null;
+  return ps;
+}
+function syncBetweenBtn(){
+  document.getElementById('bBetween').disabled = !betweenTargets();
+}
+function cloneAnchor(a, swapHandles){
+  return {
+    x:a.x, y:a.y, mode:a.mode, brk:a.brk,
+    hi: (swapHandles ? a.ho : a.hi) ? {x:(swapHandles?a.ho:a.hi).x, y:(swapHandles?a.ho:a.hi).y} : null,
+    ho: (swapHandles ? a.hi : a.ho) ? {x:(swapHandles?a.hi:a.ho).x, y:(swapHandles?a.hi:a.ho).y} : null
+  };
+}
+document.getElementById('bBetween').onclick = ()=>{
+  const ps = betweenTargets(); if(!ps) return;
+  const [pa, pb] = ps;
+  const A = S.paths[pa], B = S.paths[pb];
+  snap_();
+  const anchors = A.anchors.map(a=>cloneAnchor(a,false))
+    .concat(B.anchors.slice().reverse().map(a=>cloneAnchor(a,true)));
+  const np = {closed:true, fill:true, anchors};
+  S.paths.push(np);
+  S.cur = S.paths.length-1;
+  S.sel = anchors.map((_,i)=>({p:S.cur, a:i}));
+  genLast.idxs = [];
+  build(); render(); syncInsp();
+};
+document.getElementById('bClear').onclick = ()=>{
+  if(!S.paths.some(p=>p.anchors.length)) return;
+  snap_(); S.paths = [{closed:false, fill:false, anchors:[]}]; S.cur = 0; S.sel = [];
+  build(); render(); syncInsp();
+};
+document.getElementById('bFit').onclick = ()=>{ fitView(); render(); };
+document.getElementById('segMode').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(b) setMode(b.dataset.v);
+});
+document.getElementById('segLink').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(b && !b.disabled) setLink(b.dataset.v);
+});
+document.getElementById('bDel').onclick = delSelected;
+
+/* ---- カット：選んだアンカーでパスを切る ---- */
+function cutTarget(){
+  const one = oneSel(); if(!one) return null;
+  const P = S.paths[one.p]; if(!P) return null;
+  const n = P.anchors.length;
+  if(P.closed) return n>=3 ? one : null;
+  return (one.a>0 && one.a<n-1) ? one : null;
+}
+function syncCutBtn(){
+  document.getElementById('bCut').disabled = !cutTarget();
+}
+function cutPath(){
+  const t = cutTarget(); if(!t) return;
+  const P = S.paths[t.p];
+  snap_();
+  if(P.closed){
+    const n = P.anchors.length;
+    const rotated = P.anchors.slice(t.a).concat(P.anchors.slice(0,t.a));
+    const head = rotated[0];
+    /* 先頭側は ho だけ、末尾側は hi だけを持つ（逆側は null） */
+    rotated[0] = {x:head.x, y:head.y, mode:head.mode, brk:head.brk, hi:null,
+                  ho: head.ho ? {x:head.ho.x, y:head.ho.y} : null};
+    rotated.push({x:head.x, y:head.y, mode:head.mode, brk:head.brk,
+                  hi: head.hi ? {x:head.hi.x, y:head.hi.y} : null, ho:null});
+    P.anchors = rotated;
+    P.closed = false;
+    S.cur = t.p;
+    S.sel = [{p:t.p, a:0}, {p:t.p, a:rotated.length-1}];
+  } else {
+    const orig = P.anchors, i = t.a, pt = orig[i];
+    const tail = {x:pt.x, y:pt.y, mode:pt.mode, brk:pt.brk,
+                  hi: pt.hi ? {x:pt.hi.x, y:pt.hi.y} : null, ho:null};   /* P1側: hiのみ */
+    const head = {x:pt.x, y:pt.y, mode:pt.mode, brk:pt.brk, hi:null,
+                  ho: pt.ho ? {x:pt.ho.x, y:pt.ho.y} : null};           /* P2側: hoのみ */
+    const P1 = {closed:false, fill:P.fill, anchors: orig.slice(0,i).concat([tail])};
+    const P2 = {closed:false, fill:P.fill, anchors: [head].concat(orig.slice(i+1))};
+    S.paths.splice(t.p, 1, P1, P2);
+    S.cur = t.p;
+    S.sel = [{p:t.p, a:P1.anchors.length-1}, {p:t.p+1, a:0}];
+  }
+  genLast.idxs = [];
+  build(); render(); syncInsp();
+  toast('カットしました');
+}
+document.getElementById('bCut').onclick = cutPath;
+
+/* ---- 連結：端点どうしを繋ぐ ---- */
+function joinTargets(){
+  if(S.sel.length!==2) return null;
+  const out = [];
+  for(const s of S.sel){
+    const P = S.paths[s.p]; if(!P || P.closed) return null;
+    const n = P.anchors.length; if(n<2) return null;
+    if(s.a!==0 && s.a!==n-1) return null;
+    out.push(s);
+  }
+  return out;
+}
+/* 端点2つでの連結に当てはまらない選択のとき：S.sel に最初に現れた順でパスを並べ、
+   開いたパス（アンカー2個以上）が2本以上あれば鎖状に連結する候補として返す。
+   閉じたパスが混ざっていたら対象から外す（skippedClosed で知らせる） */
+function joinChainTargets(){
+  const order = [];
+  for(const s of S.sel){ if(order.indexOf(s.p)<0) order.push(s.p); }
+  const opens = order.filter(p=>S.paths[p] && !S.paths[p].closed && S.paths[p].anchors.length>=2);
+  const skippedClosed = order.some(p=>S.paths[p] && S.paths[p].closed);
+  return opens.length>=2 ? {order:opens, skippedClosed} : null;
+}
+function syncJoinBtn(){
+  document.getElementById('bJoin').disabled = !joinTargets() && !joinChainTargets();
+}
+/* 選択順に鎖状連結。毎回「鎖の自由端（いまの末尾）」と「次のパスの近い方の端点」を繋ぐ。
+   端点が一致（±0.01）すれば1点に畳む（mode は片方が bezier なら bezier、hi はA側・ho はB側。
+   既存の端点2つの連結と同じ規則）。一致しなければそのまま繋げる（つながった直線が1本増える） */
+function joinChain(ct){
+  const order = ct.order;
+  snap_();
+  const baseObj = S.paths[order[0]];
+  let chain = baseObj.anchors.slice();
+  const joints = [];
+  for(let k=1;k<order.length;k++){
+    let B = S.paths[order[k]].anchors.slice();
+    const tail = chain[chain.length-1];
+    const dHead = Math.hypot(B[0].x-tail.x, B[0].y-tail.y);
+    const dTail = Math.hypot(B[B.length-1].x-tail.x, B[B.length-1].y-tail.y);
+    if(dTail < dHead) B = B.slice().reverse().map(a=>cloneAnchor(a,true));
+    const bHead = B[0];
+    const close = Math.hypot(tail.x-bHead.x, tail.y-bHead.y) <= 0.01;
+    if(close){
+      const merged = {
+        x:tail.x, y:tail.y,
+        mode:(tail.mode==='bezier'||bHead.mode==='bezier') ? 'bezier' : 'spline',
+        hi: tail.hi ? {x:tail.hi.x, y:tail.hi.y} : null,     /* hiは鎖側 */
+        ho: bHead.ho ? {x:bHead.ho.x, y:bHead.ho.y} : null,  /* hoは次のパス側 */
+        brk: !!(tail.brk||bHead.brk)
+      };
+      joints.push(chain.length-1);
+      chain = chain.slice(0,-1).concat([merged], B.slice(1));
+    } else {
+      joints.push(chain.length-1, chain.length);
+      chain = chain.concat(B);
+    }
+  }
+  baseObj.anchors = chain;
+  baseObj.closed = false;
+  order.slice(1).sort((a,b)=>b-a).forEach(idx=>S.paths.splice(idx,1));
+  const newIdx = S.paths.indexOf(baseObj);
+  S.cur = newIdx;
+  S.sel = joints.map(a=>({p:newIdx, a}));
+  genLast.idxs = [];
+  build(); render(); syncInsp();
+  toast((ct.skippedClosed ? '閉じたパスを除いて' : '') + order.length + '本のパスを連結しました');
+}
+function joinSelected(){
+  const eps = joinTargets();
+  if(eps){
+    const [e1,e2] = eps;
+    snap_();
+    if(e1.p===e2.p){
+      S.paths[e1.p].closed = true;
+      S.cur = e1.p;
+      S.sel = [{p:e1.p, a:0}];
+    } else {
+      const A = S.paths[e1.p], B = S.paths[e2.p];
+      const reverseP = P => { P.anchors = P.anchors.slice().reverse().map(a=>cloneAnchor(a,true)); };
+      if(e1.a===0) reverseP(A);                          /* Aは選んだ端点が末尾になるよう向きを揃える */
+      if(e2.a===B.anchors.length-1) reverseP(B);          /* Bは選んだ端点が先頭になるよう向きを揃える */
+      const aLen = A.anchors.length;
+      const aLast = A.anchors[aLen-1], bFirst = B.anchors[0];
+      const close = Math.hypot(aLast.x-bFirst.x, aLast.y-bFirst.y) <= 0.01;
+      let jointIdx;
+      if(close){
+        const merged = {
+          x:aLast.x, y:aLast.y,
+          mode:(aLast.mode==='bezier'||bFirst.mode==='bezier') ? 'bezier' : 'spline',
+          hi: aLast.hi ? {x:aLast.hi.x, y:aLast.hi.y} : null,   /* hiはA側 */
+          ho: bFirst.ho ? {x:bFirst.ho.x, y:bFirst.ho.y} : null, /* hoはB側 */
+          brk: !!(aLast.brk||bFirst.brk)
+        };
+        A.anchors = A.anchors.slice(0,-1).concat([merged], B.anchors.slice(1));
+        jointIdx = aLen-1;
+      } else {
+        A.anchors = A.anchors.concat(B.anchors);
+        jointIdx = null;
+      }
+      S.paths.splice(S.paths.indexOf(B), 1);
+      const newAi = S.paths.indexOf(A);
+      S.cur = newAi;
+      S.sel = jointIdx!==null ? [{p:newAi, a:jointIdx}]
+                               : [{p:newAi, a:aLen-1}, {p:newAi, a:aLen}];
+    }
+    genLast.idxs = [];
+    build(); render(); syncInsp();
+    toast('連結しました');
+    return;
+  }
+  const ct = joinChainTargets();
+  if(ct) joinChain(ct);
+}
+document.getElementById('bJoin').onclick = joinSelected;
+
+/* =========================================================
+   数値の操作（イラレ準拠。006_ツールの規格 §5・135の bindNumberRow が正典）
+   ↑↓=±1×step ／ ⇧↑↓=10×stepの倍数へ乗せて±10×step ／
+   ラベル左右ドラッグ=連続変更(⇧で1/10) ／ ラベルのダブルクリック=既定値 ／
+   直接入力はEnterとblurで確定 ／ フォーカスで全選択 ／
+   吸着はドラッグ中のみ、矢印キーと直接入力は吸着を通さない。
+   135からの唯一の変更: rng が null のときはスライダー関連の配線を飛ばす
+   （座標のように上限が決まらない値のため）。それ以外は1行も変えない。
+   ========================================================= */
+/* 単位を切り替えられる行（it.u==='px'）の再表示用。切り替えた瞬間に全部 show し直す */
+const UNIT_ROWS = [];
+function bindNumberRow(it, rng, num, lab, onCommit) {
+  const qC = it.step, qF = Math.max(.01, it.step / 10);
+  /* px の欄は S.unit==='mm' のとき mm で表示・入力する（k=表示値/内部値）。内部値は px のまま */
+  const sw = it.u === 'px';
+  const unitEl = sw ? num.parentNode.querySelector('.unit') : null;
+  const mmOn = () => sw && S.unit === 'mm';
+  const k = () => mmOn() ? 1 / Grid.MM_PX : 1;
+  const baseU = () => mmOn() ? (it.step >= 1 ? 1 : .1) : it.step;   /* 1step（表示単位） */
+  let cur = it.def;                                  /* 直近の内部値（px） */
+  const show = v => {
+    cur = v;
+    if (rng) rng.value = v;
+    num.value = String(+(v * k()).toFixed(2));
+    if (unitEl) unitEl.textContent = S.unit;
+  };
+  /* v は内部値（px）。fine=true のとき mm 表示は 0.01mm に丸める */
+  const commit = (v, fine) => {
+    v = clamp(v, it.min, it.max);
+    if (!fine && it.stops && it.stops.length)
+      for (const st of it.stops) if (Math.abs(v - st) <= it.tol) { v = st; break; }
+    if (fine && mmOn()) v = +(Math.round(v * k() * 100) / 100 / k()).toFixed(2);
+    else { const q = fine ? qF : qC; v = +(Math.round(v / q) * q).toFixed(2); }
+    v = clamp(v, it.min, it.max);
+    show(v); onCommit(v);
+  };
+  /* 表示値（mm または px）→ 内部値（px） */
+  const toPx = d => d / k();
+  /* ⇧+矢印は「10の倍数へ乗せてから ±10step」（イラレの粗い刻みと同じ挙動） */
+  const arrow = (dir, shift) => {
+    const base = baseU(), big = base * 10;           /* ⇧ で 10step */
+    const cur = +num.value;
+    const d = shift ? (Math.round(cur / big) * big) + dir * big : cur + dir * base;
+    commit(toPx(d), true);
+  };
+  const keyArrow = e => {
+    const d = { ArrowUp:1, ArrowRight:1, ArrowDown:-1, ArrowLeft:-1 }[e.key];
+    if (d === undefined) return false;
+    e.preventDefault(); arrow(d, e.shiftKey); return true;
+  };
+  if (rng) {
+    rng.addEventListener("input", e => commit(+rng.value, e.shiftKey));
+    rng.addEventListener("keydown", keyArrow);
+  }
+  /* 直接入力は Enter と blur の両方で明示的に確定する（change イベント頼みだと
+     「同じ文字列に戻して Enter」等で発火せず、作品へ反映されないことがある） */
+  const commitField = () => { const v = parseFloat(num.value); commit(isNaN(v) ? it.def : toPx(v), true); };
+  num.addEventListener("keydown", e => { if (!keyArrow(e) && e.key === "Enter") { commitField(); num.blur(); } });
+  num.addEventListener("blur", commitField);
+  /* フォーカスで全選択（イラレ準拠: クリックしてそのまま打てば置き換わる）。
+     クリック直後の mouseup がこの選択を潰すので、直後1回だけ既定動作を止める */
+  num.addEventListener("focus", () => { num.select(); num.dataset.selAt = String(performance.now()); });
+  num.addEventListener("mouseup", e => {
+    const t0 = +num.dataset.selAt || 0;
+    if (t0 && performance.now() - t0 < 400) { e.preventDefault(); num.dataset.selAt = "0"; }
+  });
+  lab.addEventListener("dblclick", () => commit(it.def, true));
+  lab.addEventListener("pointerdown", e => {
+    if (e.detail > 1) return;
+    lab.setPointerCapture(e.pointerId);
+    const x0 = e.clientX, v0 = +num.value;
+    const move = ev => commit(toPx(v0 + (ev.clientX - x0) * baseU() * (ev.shiftKey ? .1 : 1)), ev.shiftKey);
+    const up = () => { lab.removeEventListener("pointermove", move); lab.removeEventListener("pointerup", up); };
+    lab.addEventListener("pointermove", move);
+    lab.addEventListener("pointerup", up);
+  });
+  show(it.def);
+  const api = { show, commit };
+  if (sw) UNIT_ROWS.push(() => show(cur));
+  return api;
+}
+/* Shift 中はスライダーを 1/10 刻みに（135と同じ。ネイティブのつまみドラッグでも
+   細かい値まで拾えるようにする。矢印キー・ラベルドラッグは bindNumberRow 側で対応済み） */
+addEventListener("keydown", e => { if (e.key === "Shift") setSliderStep(true); });
+addEventListener("keyup",   e => { if (e.key === "Shift") setSliderStep(false); });
+function setSliderStep(fine){
+  for (const [id, spec] of RANGE_FIELDS) {
+    const el = document.getElementById(id);
+    if (el) el.step = fine ? spec.step / 10 : spec.step;
+  }
+}
+
+/* stops（吸着の基準値）の並びを作る（006_ツールの規格 §5 の every ヘルパ） */
+const every = (step, min, max) => {
+  const out = [];
+  for (let v = Math.ceil(min/step)*step; v <= max + 1e-9; v += step) out.push(R2(v));
+  return out;
+};
+/* 角度は「30と45の倍数」に吸着する（006_ツールの規格 §5 の全体標準） */
+function angleStops(min, max){
+  const s = new Set();
+  for (let v = Math.ceil(min/30)*30; v <= max + 1e-9; v += 30) s.add(R2(v));
+  for (let v = Math.ceil(min/45)*45; v <= max + 1e-9; v += 45) s.add(R2(v));
+  return [...s].sort((a,b)=>a-b);
+}
+
+/* ── フィールド定義（下の表がそのまま key・範囲・吸着になる） ─────── */
+const F_STEP   = {k:'fStep',    l:'間隔',   u:'mm', min:0.5,   max:70,  step:0.5,  def:1,    stops:[0.5,1,2,5,10], tol:0.2};
+const F_RATIO  = {k:'nRatio',   l:'比率',   u:'×',  min:1.05,  max:2.5, step:0.01, def:1.62, stops:[1.5,1.62,2], tol:0.03};
+const F_DIV    = {k:'nDiv',     l:'分割',   u:'本', min:3,     max:48,  step:1,    def:12,   stops:[6,8,12,24], tol:0};
+const F_CX     = {k:'nCx',      l:'中心X',  u:'px', min:-5000, max:5000,step:1,    def:0,    stops:[0], tol:4};
+const F_CY     = {k:'nCy',      l:'中心Y',  u:'px', min:-5000, max:5000,step:1,    def:0,    stops:[0], tol:4};
+const F_SIDES  = {k:'fSides',   l:'辺の数', u:'個', min:3,     max:24,  step:1,    def:6,    stops:[3,4,5,6,8,12], tol:0};
+const F_PENCIL = {k:'fPencilTol',l:'許容誤差',u:'px',min:0.5,  max:20,  step:0.5,  def:5,    stops:[2.5,5,10], tol:0.4};
+const F_ROT    = {k:'fRotAngle',l:'角度',   u:'°',  min:-360,  max:360, step:1,    def:0,    stops:angleStops(-360,360), tol:3};
+const F_X      = {k:'fX',       l:'X',      u:'px', min:-100000,max:100000,step:1, def:0,    stops:[], tol:0};
+const F_Y      = {k:'fY',       l:'Y',      u:'px', min:-100000,max:100000,step:1, def:0,    stops:[], tol:0};
+const F_GEN_N  = {k:'nGenN',    l:'点の数', u:'個', min:3,     max:60,  step:1,    def:7,    stops:[3,4,5,6,8,12], tol:0};
+const F_GEN_R  = {k:'nGenR',    l:'半径',   u:'px', min:20,    max:600, step:1,    def:200,  stops:every(50,20,600), tol:4};
+const F_GEN_R2 = {k:'nGenR2',   l:'内半径', u:'px', min:5,     max:600, step:1,    def:80,   stops:every(50,5,600), tol:4};
+const F_GEN_K  = {k:'nGenK',    l:'跳び',   u:'',   min:2,     max:20,  step:1,    def:2,    stops:[], tol:0};
+const F_REL_R  = {k:'nRelRatio',l:'比率',   u:'×',  min:1.1,   max:3,   step:0.01, def:1.62, stops:[1.5,1.62,2], tol:0.03};
+
+const RANGE_FIELDS = [
+  ['c-fStep', F_STEP], ['c-nRatio', F_RATIO], ['c-nDiv', F_DIV],
+  ['c-fSides', F_SIDES], ['c-fPencilTol', F_PENCIL],
+  ['c-nGenN', F_GEN_N], ['c-nGenR', F_GEN_R], ['c-nGenR2', F_GEN_R2], ['c-nGenK', F_GEN_K],
+  ['c-nRelRatio', F_REL_R]
+];
+
+/* ---- グリッドの配線 ---- */
+(function(){
+  const sel = document.getElementById('gKind');
+  Grid.kinds.forEach(k=>{ const o = new Option(k.label, k.id); o.title = k.desc; sel.add(o); });
+  sel.value = S.grid.kind;
+  function syncGridVis(){
+    document.getElementById('wRatio').classList.toggle('off', S.grid.kind!=='geom');
+    document.getElementById('wDiv').classList.toggle('off', S.grid.kind!=='polar');
+  }
+  sel.addEventListener('change', ()=>{
+    S.grid.kind = sel.value;
+    if(!S.grid.on){ S.grid.on = true; document.getElementById('bGrid').setAttribute('aria-pressed','true'); }
+    syncGridVis(); render();
+  });
+  syncGridVis();
+
+  bindNumberRow(F_STEP, document.getElementById('c-fStep'), document.getElementById('n-fStep'),
+    document.querySelector('label[for="c-fStep"]'), v => { S.grid.mm = v; render(); });
+
+  const apiRatio = bindNumberRow(F_RATIO, document.getElementById('c-nRatio'), document.getElementById('n-nRatio'),
+    document.querySelector('label[for="c-nRatio"]'), v => { S.grid.ratio = v; render(); });
+
+  bindNumberRow(F_DIV, document.getElementById('c-nDiv'), document.getElementById('n-nDiv'),
+    document.querySelector('label[for="c-nDiv"]'), v => { S.grid.div = Math.round(v); render(); });
+
+  window.apiCx = bindNumberRow(F_CX, null, document.getElementById('n-nCx'),
+    document.querySelector('label[for="n-nCx"]'), v => { S.grid.cx = v; render(); });
+
+  window.apiCy = bindNumberRow(F_CY, null, document.getElementById('n-nCy'),
+    document.querySelector('label[for="n-nCy"]'), v => { S.grid.cy = v; render(); });
+
+  document.getElementById('gCenterSel').onclick = ()=>{
+    const pts = (S.sel.length ? S.sel.map(anchorAt).filter(Boolean) : S.paths.flatMap(p=>p.anchors));
+    if(!pts.length){ toast('先に点を選ぶか、何か描いてください'); return; }
+    const c = Grid.centroid(pts);
+    S.grid.cx = R2(c.x); S.grid.cy = R2(c.y);
+    window.apiCx.show(S.grid.cx); window.apiCy.show(S.grid.cy);
+    render();
+  };
+  document.getElementById('gApply').onclick = snapSelected;
+})();
+
+/* ---- 道具の設定（多角形・鉛筆） ---- */
+bindNumberRow(F_SIDES, document.getElementById('c-fSides'), document.getElementById('n-fSides'),
+  document.querySelector('label[for="c-fSides"]'), v => { S.sides = Math.round(v); });
+bindNumberRow(F_PENCIL, document.getElementById('c-fPencilTol'), document.getElementById('n-fPencilTol'),
+  document.querySelector('label[for="c-fPencilTol"]'), v => { S.pencil.tol = v; });
+
+/* ---- 道具の設定（回転）：field で入力すると、その場で回してから 0 に戻る。
+   1回のドラッグ／連続キー押しは「元の位置からの絶対角度」を保つよう、
+   ジェスチャの最初だけ座標のスナップショットを取る（キャンバス側の回転ツールと同じ考え方） ---- */
+(function(){
+  const num = document.getElementById('n-fRotAngle');
+  const lab = document.querySelector('label[for="n-fRotAngle"]');
+  let from = null;
+  const api = bindNumberRow(F_ROT, null, num, lab, v => {
+    if(v === 0) return;
+    if(!from){
+      const ts = rotTargets();
+      if(!ts.length){ toast('回転する点がありません'); return; }
+      snap_();
+      from = ts.map(s=>{
+        const a = anchorAt(s);
+        return a && {p:s.p, a:s.a, x:a.x, y:a.y,
+                     hi: a.hi ? {x:a.hi.x, y:a.hi.y} : null,
+                     ho: a.ho ? {x:a.ho.x, y:a.ho.y} : null};
+      }).filter(Boolean);
+      if(!from.length){ from = null; return; }
+    }
+    applyRotationFrom(from, {x:S.rot.cx, y:S.rot.cy}, v);
+    build(); render();
+  });
+  const finish = () => { if(from){ from = null; api.show(0); syncInsp(); } };
+  lab.addEventListener('pointerup', finish);
+  lab.addEventListener('pointercancel', finish);
+  num.addEventListener('blur', finish);
+  num.addEventListener('keydown', e => { if(e.key==='Enter') finish(); });
+  num.addEventListener('keyup', e => {
+    if(e.key==='ArrowUp'||e.key==='ArrowDown'||e.key==='ArrowLeft'||e.key==='ArrowRight') finish();
+  });
+  rotAngleAPI = api;
+  document.getElementById('rotCenterSel').onclick = ()=>{
+    const ts = rotTargets(), pts = ts.map(anchorAt).filter(Boolean);
+    if(!pts.length){ toast('先に点を選ぶか、何か描いてください'); return; }
+    const c = Grid.centroid(pts);
+    S.rot.cx = R2(c.x); S.rot.cy = R2(c.y); S.rot.sig = JSON.stringify(ts);
+    render();
+  };
+})();
+
+/* ---- 選択中の点（X・Y）：ドラッグ・連続キー押しは1回のジェスチャにつき
+   undo チェックポイントを1つだけ作る（snap_() の多発を避ける） ---- */
+function gestureField(spec, rngEl, numEl, labEl, applyFn){
+  let started = false;
+  const api = bindNumberRow(spec, rngEl, numEl, labEl, v => {
+    if(!started){ started = true; snap_(); }
+    applyFn(v);
+  });
+  const finish = () => { started = false; };
+  labEl.addEventListener('pointerup', finish);
+  labEl.addEventListener('pointercancel', finish);
+  numEl.addEventListener('blur', finish);
+  numEl.addEventListener('keydown', e => { if(e.key==='Enter') finish(); });
+  numEl.addEventListener('keyup', e => {
+    if(e.key==='ArrowUp'||e.key==='ArrowDown'||e.key==='ArrowLeft'||e.key==='ArrowRight') finish();
+  });
+  return api;
+}
+const apiX = gestureField(F_X, null, document.getElementById('n-fX'), document.querySelector('label[for="n-fX"]'),
+  v => {
+    const one = oneSel(); if(!one) return;
+    const a = anchorAt(one); if(!a) return;
+    const d = R2(v) - a.x;
+    if(a.hi) a.hi.x = R2(a.hi.x + d);
+    if(a.ho) a.ho.x = R2(a.ho.x + d);
+    a.x = R2(v);
+    build(); render(); syncInsp();
+  });
+const apiY = gestureField(F_Y, null, document.getElementById('n-fY'), document.querySelector('label[for="n-fY"]'),
+  v => {
+    const one = oneSel(); if(!one) return;
+    const a = anchorAt(one); if(!a) return;
+    const d = R2(v) - a.y;
+    if(a.hi) a.hi.y = R2(a.hi.y + d);
+    if(a.ho) a.ho.y = R2(a.ho.y + d);
+    a.y = R2(v);
+    build(); render(); syncInsp();
+  });
+
+/* ---- 点の関係の配線 ---- */
+document.getElementById('segRelMode').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  S.rel.mode = b.dataset.v; syncRel();
+});
+document.getElementById('segRelAng').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  S.rel.ang = +b.dataset.v; syncRel();
+});
+bindNumberRow(F_REL_R, document.getElementById('c-nRelRatio'), document.getElementById('n-nRelRatio'),
+  document.querySelector('label[for="c-nRelRatio"]'), v => { S.rel.ratio = v; });
+document.getElementById('bSimplify').onclick = simplifySelected;
+document.getElementById('relSpace').onclick = applySpacing;
+document.getElementById('relSnapA').onclick = ()=>applyAngles('snap');
+document.getElementById('relTurn').onclick = ()=>applyAngles('turn');
+syncRel();
+
+/* ---- パスの生成の配線 ---- */
+function syncGen(){
+  document.querySelectorAll('#segGenShape button').forEach(x=>
+    x.setAttribute('aria-pressed', String(x.dataset.v===S.gen.shape)));
+  document.querySelectorAll('#segGenRule button').forEach(x=>
+    x.setAttribute('aria-pressed', String(x.dataset.v===S.gen.rule)));
+  document.getElementById('wGenR2').classList.toggle('off', S.gen.shape!=='double');
+  document.getElementById('wGenK').classList.toggle('off', S.gen.rule!=='skip');
+  document.getElementById('lGenR').textContent = S.gen.shape==='line' ? '間隔' : '半径';
+}
+document.getElementById('segGenShape').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  S.gen.shape = b.dataset.v; syncGen();
+});
+document.getElementById('segGenRule').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  S.gen.rule = b.dataset.v; syncGen();
+});
+bindNumberRow(F_GEN_N, document.getElementById('c-nGenN'), document.getElementById('n-nGenN'),
+  document.querySelector('label[for="c-nGenN"]'), v => { S.gen.count = Math.round(v); });
+bindNumberRow(F_GEN_R, document.getElementById('c-nGenR'), document.getElementById('n-nGenR'),
+  document.getElementById('lGenR'), v => { S.gen.range = v; });
+bindNumberRow(F_GEN_R2, document.getElementById('c-nGenR2'), document.getElementById('n-nGenR2'),
+  document.querySelector('label[for="c-nGenR2"]'), v => { S.gen.r2 = v; });
+bindNumberRow(F_GEN_K, document.getElementById('c-nGenK'), document.getElementById('n-nGenK'),
+  document.querySelector('label[for="c-nGenK"]'), v => { S.gen.k = Math.round(v); });
+syncGen();
+document.getElementById('gClosed').onclick = e=>{
+  S.gen.closed = e.currentTarget.getAttribute('aria-pressed')!=='true';
+  e.currentTarget.setAttribute('aria-pressed', String(S.gen.closed));
+};
+document.getElementById('gGo').onclick = makeGenerated;
+
+
+/* ---- 全体を表示 ---- */
+function fitView(){
+  /* パネルを開閉した直後は ResizeObserver がまだ走っておらず VW/VH が1フレーム古い。
+     測り直す。ただし測れなかったときは前の寸法を使い、次の resize でやり直す。 */
+  if(!fitCanvas() && (VW<2 || VH<2)){ pendingFit = true; return; }
+  const b = contentBox(S.paths.map((_,i)=>i));
+  if(!b){ S.view = {s:1, ox:VW/2, oy:VH/2}; return; }
+  const w = Math.max(b.Mx-b.mx,1), h = Math.max(b.My-b.my,1), pad = 60;
+  const s = Math.max(0.1, Math.min(12, Math.min((VW-pad*2)/w, (VH-pad*2)/h)));
+  S.view.s = s;
+  S.view.ox = (VW - w*s)/2 - b.mx*s;
+  S.view.oy = (VH - h*s)/2 - b.my*s;
+}
+
+window.__svg = ()=>buildSVG(selectedPaths());
+window.__import = importSVGText;
+
+/* ---- 上部バー・キー（006 §0 / §7 KEY-00）----
+   非kitツール（UI）: 右パネルと道具の並びは独自。上部バーは kit の appBar + stageBar、キーは Studio.keys。
+   大きさ・再生・A/B・映像は出さない（無限に動かせるキャンバスで、動きの無い道具のため。sizes:false / motion:false）。 */
+function toggleUnit(){
+  S.unit = S.unit === 'mm' ? 'px' : 'mm';
+  try{ localStorage.setItem('spline-draw.unit', S.unit); }catch(e){}
+  document.getElementById('bUnit').textContent = S.unit;
+  UNIT_ROWS.forEach(f=>f());
+}
+const bar = Studio.appBar('#bar', {
+  name:'スプライン描画', sub:'SPLINE', memo:false, caption:false,
+  onCopy: copySVG, onSvg: exportSVG,
+  extra:[
+    /* iPad はキーボードが無いので、取り消し・やり直しは画面からも押せるようにする */
+    {label:'取り消し', kbd:'⌘Z', onClick:()=>undo(), id:'bUndo', title:'指2本のタップでも取り消せる'},
+    {label:'やり直し', kbd:'⇧⌘Z', onClick:()=>redo(), id:'bRedo'},
+    /* 右パネルの数値の単位。押すたびに mm と px が入れ替わる（ラベルが今の単位） */
+    {label:S.unit, onClick:()=>toggleUnit(), id:'bUnit', title:'数値の単位を切り替える（mm / px）'}
+  ]
+});
+{ /* 取り消し・やり直し・単位は書き出しの左へ */
+  const first = document.getElementById('copy'), sp = document.createElement('div'); sp.className = 'sep';
+  first.before(document.getElementById('bUndo'), document.getElementById('bRedo'), document.getElementById('bUnit'), sp);
+}
+function setBg(hex){
+  S.col.bg = hex;
+  document.getElementById('stage').style.background = hex==='none' ? 'transparent' : hex;
+}
+const sb = Studio.stageBar('#bar', {
+  sizes:false, motion:false,
+  colors:[
+    {key:'fill',   label:'塗り', value:S.col.fill},
+    {key:'stroke', label:'線',   value:S.col.stroke},
+    {key:'bg',     label:'背景', value:S.col.bg}
+  ],
+  palettes:true,
+  onColorChange:(key, v)=>{
+    if(key==='bg') setBg(v); else S.col[key] = v;
+    render();
+  }
+});
+setBg(S.col.bg);
+
+function toggleOutline(){ S.outline = !S.outline; render(); }
+function toggleColorTarget(){ sb.colors.setTarget(sb.colors.getTarget()==='fill' ? 'stroke' : 'fill'); }
+function swapFillStroke(){
+  const f = S.col.fill; S.col.fill = S.col.stroke; S.col.stroke = f;
+  sb.colors.set('fill', S.col.fill); sb.colors.set('stroke', S.col.stroke);
+  render();
+}
+/* 選択した点を動かす（矢印＝グリッドの隣の線へ・⇧＝細かく）。ハンドルも一緒に動く */
+function moveSel(ux, uy, shift){
+  if(!S.sel.length) return;
+  const g = S.grid.step;
+  snap_();
+  for(const s of S.sel){
+    const a = anchorAt(s); if(!a) continue;
+    let nx=a.x, ny=a.y;
+    if(S.grid.snap && !shift){
+      const step=(v,d)=> d>0 ? (Math.floor(v/g+1e-9)+1)*g : (Math.ceil(v/g-1e-9)-1)*g;
+      if(ux) nx = R2(step(a.x,ux));
+      if(uy) ny = R2(step(a.y,uy));
+    } else {
+      const st = shift ? (S.grid.snap?1:10) : 1;
+      nx = R2(a.x+ux*st); ny = R2(a.y+uy*st);
+    }
+    if(a.hi){ a.hi = {x:R2(a.hi.x+nx-a.x), y:R2(a.hi.y+ny-a.y)}; }
+    if(a.ho){ a.ho = {x:R2(a.ho.x+nx-a.x), y:R2(a.ho.y+ny-a.y)}; }
+    a.x = nx; a.y = ny;
+  }
+  build(); render(); syncInsp();
+}
+/* 押している間だけ変わる状態（Space＝手のひら・Option＝シェイプ形成の札の文言）と、
+   Studio.keys の extra が受けない ⌘ 付きの 2 つ（⌘J 連結・⌘H アンカー表示）。コマンドのキーは下の Studio.keys へ */
+addEventListener('keydown', e=>{
+  if(e.code==='Space') spaceDown = true;
+  if(e.key==='Alt' && S.tool==='shapebuild' && HOVERXY){ HOVERXY.alt = true; render(); }
+  if(!(e.metaKey || e.ctrlKey) || e.isComposing) return;
+  if(document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+  const k = e.key.toLowerCase();
+  if(k==='j' && !e.shiftKey){ e.preventDefault(); joinSelected(); }
+  if(k==='h' && !e.shiftKey){ e.preventDefault(); toggleAnchors(); }
+});
+addEventListener('keyup', e=>{
+  if(e.code==='Space') spaceDown = false;
+  if(e.key==='Alt' && S.tool==='shapebuild' && HOVERXY){ HOVERXY.alt = false; render(); }
+});
+cv.addEventListener('pointerleave', ()=>{
+  if(S.tool==='shapebuild' && HOVER){ HOVER = null; render(); }
+});
+Studio.keys({
+  undo: undo, redo: redo,
+  copy: copySVG,
+  pasteSVG: text => reportImport(importSVGText(text)),
+  outline: toggleOutline,
+  toggleColorTarget: toggleColorTarget, swapFillStroke: swapFillStroke,
+  selectTool: () => setTool('select'),
+  selectAll: selectAll,
+  del: delSelected,
+  pan: () => {},                                /* Space を押したままドラッグ＝手のひら（canvas 側の spaceDown が担う） */
+  escSteps: [
+    sb.closeDialog,                             /* 色の小窓 */
+    () => {                                     /* 描いている途中のパス → シェイプ形成の印 → 選択 */
+      const P = S.paths[S.cur];
+      if(S.tool==='pen' && P && !P.closed && P.anchors.length){ finishPath(); return true; }
+      if(S.tool==='shapebuild' && MARK.size){ MARK.clear(); syncShapeInfo(); render(); return true; }
+      if(S.sel.length){ S.sel = []; render(); syncInsp(); return true; }
+      return false;
+    }
+  ],
+  extra: {
+    'a': () => setTool('direct'), 'p': () => setTool('pen'), 'n': () => setTool('pencil'),
+    'm': () => setTool('rect'), 'l': () => setTool('ellipse'), 'r': () => setTool('rotate'),
+    'shift+m': () => setTool('shapebuild'),
+    'arrowup': () => moveSel(0,-1,false),    'shift+arrowup': () => moveSel(0,-1,true),
+    'arrowdown': () => moveSel(0,1,false),   'shift+arrowdown': () => moveSel(0,1,true),
+    'arrowleft': () => moveSel(-1,0,false),  'shift+arrowleft': () => moveSel(-1,0,true),
+    'arrowright': () => moveSel(1,0,false),  'shift+arrowright': () => moveSel(1,0,true)
+  }
+});
+
+/* ---- 起動 ----
+   開いた直後は、強みが分かる短い曲線（Bスプライン点とベジェ点が混在する1本）を青で版面の中央に大きく置く
+   （006 §0 INIT-01）。次に描く線は新しいパスから始まる（この曲線を延ばさない）。 */
+function initialPaths(){
+  const bez = (x,y,hi,ho)=>{ const a = mkAnchor(x,y,'bezier'); a.hi = {x:hi[0],y:hi[1]}; a.ho = {x:ho[0],y:ho[1]}; return a; };
+  return [
+    {closed:false, fill:false, anchors:[
+      mkAnchor(-140, 80,'spline'),
+      mkAnchor( -80,-80,'spline'),
+      bez(0, 40, [-40, 40], [40, 40]),
+      mkAnchor(  80,-100,'spline'),
+      mkAnchor( 140,  20,'spline')
+    ]},
+    {closed:false, fill:false, anchors:[]}
+  ];
+}
+let pendingInit = false;
+function initView(){
+  if(!fitCanvas() && (VW<2 || VH<2)){ pendingFit = true; pendingInit = true; return; }
+  const b = contentBox([0]);
+  if(!b){ S.view = {s:1, ox:VW/2, oy:VH/2}; return; }
+  const ext = Math.max(b.Mx-b.mx, b.My-b.my, 1);
+  const sc = Math.max(0.2, Math.min(6, 0.6*Math.min(VW,VH)/ext));      /* 曲線の長辺＝版面の短辺の60% */
+  S.view.s = sc;
+  S.view.ox = VW/2 - (b.mx+b.Mx)/2*sc;
+  S.view.oy = VH/2 - (b.my+b.My)/2*sc;
+}
+addEventListener('resize', resize);
+new ResizeObserver(resize).observe(document.getElementById('stage'));
+fitCanvas();
+S.paths = initialPaths(); S.cur = 1;
+build();
+initView();
+setTool('pen');
+render(); syncInsp(); syncBar();
+
+/* オフライン用。https のときだけ登録する。
+   localhost や LAN の http では登録しない —— 開発中にキャッシュが古い版を
+   返し続ける事故（core.js で一度やった）を持ち込まないため */
+
+</script>
+<script src="_ext/000_kit/studio-vault.js?v=e272fbb8"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=e2c5d361"></script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>
