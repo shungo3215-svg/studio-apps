@@ -1,0 +1,216 @@
+<!doctype html>
+<html data-sm-build="7b27671・2026-11-05 22:19" lang="ja" data-sm-app="symmetry-draw">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="studio-spec" content="type:描いて増やす">
+<title>シンメトリー描画</title>
+<link rel="stylesheet" href="_ext/000_kit/studio2.css?v=0.8.1">
+<link rel="stylesheet" href="_ext/000_kit/studio-mobile.css?v=0.8.1">
+<link rel="stylesheet" href="src/style.css?v=0.3.0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+</head>
+<body data-frame="tool">
+
+<header id="bar"></header>
+
+<div id="main">
+  <nav class="toolrail" id="toolrail" aria-label="道具"></nav>
+  <div id="stage">
+    <div id="board">
+      <svg id="stageSvg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="展開した図"></svg>
+    </div>
+  </div>
+  <aside id="panel" class="studio-panel">
+    <div id="params"></div>
+    <div id="symbox"></div>
+  </aside>
+</div>
+
+<script src="_ext/000_kit/studio-kit.js?v=0.8.1"></script>
+<script src="_ext/000_kit/curve-fit.js?v=0.8.1"></script>
+<script src="_ext/000_kit/svg-in.js?v=0.8.1"></script>
+<script src="src/geom.js?v=0.2.0"></script>
+<script src="src/groups.js?v=0.2.0"></script>
+<script src="src/layout.js?v=0.2.0"></script>
+<script src="src/path.js?v=0.2.0"></script>
+<script src="src/doc.js?v=0.2.0"></script>
+<script src="src/view.js?v=0.2.0"></script>
+<script src="src/snap.js?v=0.2.0"></script>
+<script src="src/tools/index.js?v=0.2.0"></script>
+<script src="src/tools/ops.js?v=0.2.0"></script>
+<script src="src/tools/pen.js?v=0.2.0"></script>
+<script src="src/tools/pencil.js?v=0.2.0"></script>
+<script src="src/tools/shapes.js?v=0.2.0"></script>
+<script src="src/tools/select.js?v=0.2.0"></script>
+<script src="src/tools/direct.js?v=0.2.0"></script>
+<script src="src/faces.js?v=0.3.0"></script>
+<script src="src/tools/eraser.js?v=0.2.0"></script>
+<script src="src/tools/builder.js?v=0.3.0"></script>
+<script src="src/export.js?v=0.2.0"></script>
+<script src="src/paste.js?v=0.3.0"></script>
+<script src="src/ui.js?v=0.2.0"></script>
+<script src="src/api.js?v=0.3.0"></script>
+<script src="_ext/000_kit/studio-vault.js?v=0.8.1"></script>
+<script src="_ext/000_kit/studio-mobile.js?v=0.8.1"></script>
+<script>
+  /* 起動と、上部バー・キー・書き出しの配線（006_ツールの規格 §0）。描く処理は src/ にある。 */
+  SD.init();   // 保存した図形の復元（無ければ最初の形）
+
+  var toast = Studio.toast;
+  function ex() { return SD.exp; }
+  function exportMeta() { return ex().meta(); }   // 封筒（006 §1）に入る出自と図形
+  function doSvg() {
+    var name = ex().fileBase();
+    Studio.exportSVG(ex().buildSvg(true), { name: name, standard: true, meta: exportMeta() });
+    toast(name + '.svg');
+  }
+  function doCopy() {
+    var text = Studio.serializeSVG(ex().buildSvg(false), { standard: true, meta: exportMeta() });   // 地色は含めない（§8 COPY-01）
+    Studio.copySVG(text).then(function (result) { toast(Studio.copyResultMessage(result)); })
+      .catch(function () { toast('コピーできませんでした。「SVG」でファイルとして渡してください', { kind: 'error', sticky: true }); });
+  }
+  function doPng() {
+    var name = ex().fileBase();
+    Studio.exportPNG(ex().buildSvg(false), { scale: 2, name: name, bg: SD.prefs.bg }).then(function (blob) {
+      if (blob) toast(name + '.png');
+    });
+  }
+  function doJson() {
+    var name = ex().fileBase();
+    Studio.dl(new Blob([ex().jsonText()], { type: 'application/json' }), name + '.json');
+    toast(name + '.json');
+  }
+  function openJsonText(text, label) {
+    try { ex().loadJsonText(text); toast((label || 'JSON') + ' を開きました（⌘Z で戻せます）'); }
+    catch (error) { toast('開けませんでした: ' + error.message, { kind: 'error', sticky: true }); }
+  }
+  var jsonInput = document.createElement('input');
+  jsonInput.type = 'file'; jsonInput.accept = '.json,application/json'; jsonInput.hidden = true;
+  jsonInput.addEventListener('change', function () {
+    var f = jsonInput.files && jsonInput.files[0]; jsonInput.value = '';
+    if (!f) return;
+    var r = new FileReader(); r.onload = function () { openJsonText(String(r.result), f.name); }; r.readAsText(f);
+  });
+  document.body.appendChild(jsonInput);
+  // JSON をウィンドウにドロップしても開く（SVG は下の onDropSVG が受ける）
+  document.addEventListener('drop', function (e) {
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f || !/\.json$/i.test(f.name)) return;
+    e.preventDefault();
+    var r = new FileReader(); r.onload = function () { openJsonText(String(r.result), f.name); }; r.readAsText(f);
+  });
+
+  // Serendie Symbols outlined/file-download.svg（000_kit/symbols・MIT）
+  var ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.50095 3.64935C9.66036 3.48994 9.87656 3.40039 10.102 3.40039H18.7484C19.2179 3.40039 19.5984 3.78095 19.5984 4.25039V19.7504C19.5984 20.2198 19.2179 20.6004 18.7484 20.6004H5.24844C4.77899 20.6004 4.39844 20.2198 4.39844 19.7504V9.10394C4.39844 8.87851 4.48799 8.66231 4.6474 8.5029L9.50095 3.64935ZM10.247 4.60039L5.59844 9.24892V19.4004H18.3984V4.60039H10.247ZM5.4962 9.35116L5.49592 9.35143L5.24844 9.10394L5.49592 9.35143C5.49602 9.35134 5.49611 9.35125 5.4962 9.35116ZM10.3492 4.49816C10.3493 4.49807 10.3494 4.49797 10.3495 4.49788L10.102 4.25039L10.3495 4.49788L10.3492 4.49816ZM11.3983 13.5522L9.60457 11.7584L8.75604 12.607L11.3967 15.2477C11.7287 15.5796 12.2669 15.5796 12.5988 15.2477L15.2391 12.6074L14.3906 11.7588L12.5983 13.5511L12.5979 9.00009L11.3979 9.00019L11.3983 13.5522Z" fill="currentColor"/></svg>';
+  var bar = SD.bar = Studio.appBar('#bar', {
+    name: 'シンメトリー描画',
+    theme: false,
+    onCopy: doCopy, onSvg: doSvg, onPng: doPng,
+    copyLabel: 'コピー',
+    svgLabel: 'SVG', svgTitle: 'SVGを書き出し', svgAriaLabel: 'SVGを書き出し', svgIcon: ICON_DOWNLOAD,
+    extra: [
+      { label: 'JSON', id: 'json', onClick: doJson, title: '図形と設定をJSONで保存', icon: ICON_DOWNLOAD, ariaLabel: 'JSONを書き出し' },
+      { label: 'JSONを開く', id: 'jsonopen', onClick: function () { jsonInput.click(); }, title: '保存したJSONを開く' }
+    ]
+  });
+
+  var sb = Studio.stageBar('#bar', {
+    motion: false,   // 動きは無い（再生・A/B・映像を出さず、インスタ用は PNG）
+    onSize: function (w, h) {
+      var a = w / h;
+      if (a >= 1) SD.view.setSize(480, Math.round(480 / a)); else SD.view.setSize(Math.round(480 * a), 480);
+    },
+    // 塗り・線は色の小窓で「なし」（'none'）も選べる。初期は塗りなし・線は規定パレットの青
+    colors: [
+      { key: 'fill', label: '塗り', value: SD.prefs.fill },
+      { key: 'stroke', label: '線', value: SD.prefs.stroke },
+      { key: 'bg', label: '背景', value: SD.prefs.bg }
+    ],
+    palettes: true,
+    onColorChange: function (key, v) {
+      // 塗り・線は、選択があれば選択だけに、無ければ次に描く物に。背景は版面の地色
+      if ((key === 'fill' || key === 'stroke') && SD.ops.applyStyle(key === 'fill' ? { fill: v } : { stroke: v })) return;
+      SD.prefs[key] = v; SD.persist();
+      if (key === 'bg') SD.emit('change');
+    },
+    frame: function () { return Studio.serializeSVG(ex().buildSvg(true), { standard: true }); },
+    meta: exportMeta
+  });
+
+  SD.view.init(document.getElementById('stageSvg'));
+  SD.tools.attach(SD.view.svg);
+  SD.ui.init();
+  SD.on(function (kind) { if (kind === 'prefs') { sb.colors.set('bg', SD.prefs.bg); } });
+  // 選択が変わったら、色見本を選択中の図形の色に合わせる（選択が無ければ次に描く物の色）
+  SD.syncSwatches = function () {
+    var first = SD.ops.selected()[0];
+    sb.colors.set('fill', first ? first.fill : SD.prefs.fill);
+    sb.colors.set('stroke', first ? first.stroke : SD.prefs.stroke);
+  };
+  SD.syncSwatches();
+  // 取り消しの履歴の最初に積むのは SD.init() 済み
+
+  // 書き出したSVGをドロップすると、その図形で開き直す（§1）
+  Studio.onDropSVG(document.body, function (env, file, result) {
+    if (!env) { toast(result ? result.message : 'このSVGには出自が入っていません', { kind: 'error', sticky: true }); return; }
+    try { ex().restoreEnvelope(env); toast('図形を戻しました（' + (env.date || '日時不明') + '）'); }
+    catch (error) { toast(error.message, { kind: 'error', sticky: true }); }
+  });
+
+  /* ショートカット（§7・KEY-00: キーは Studio.keys に集約する） */
+  var toolKeys = { v: 'select', a: 'direct', p: 'pen', n: 'pencil', '\\': 'line', m: 'rect', l: 'ellipse', y: 'polygon', 'shift+e': 'eraser', 'shift+m': 'builder' };
+  var extraKeys = { enter: function () { SD.tools.enter(); } };
+  Object.keys(toolKeys).forEach(function (k) { extraKeys[k] = function () { SD.tools.set(toolKeys[k]); }; });
+  // 矢印: モチーフ単位で 1（⇧で 10）動かす
+  [['arrowleft', -1, 0], ['arrowright', 1, 0], ['arrowup', 0, -1], ['arrowdown', 0, 1]].forEach(function (a) {
+    extraKeys[a[0]] = function () { SD.ops.nudge(a[1], a[2]); };
+    extraKeys['shift+' + a[0]] = function () { SD.ops.nudge(a[1] * 10, a[2] * 10); };
+  });
+  // 重ね順（イラレと同じ ⌘] ⌘[ ⇧⌘] ⇧⌘[）。⇧ を押すと記号が { } に変わる配列も受ける
+  extraKeys['meta+]'] = function () { SD.ops.reorder('forward'); };
+  extraKeys['meta+['] = function () { SD.ops.reorder('backward'); };
+  extraKeys['shift+meta+]'] = extraKeys['shift+meta+}'] = function () { SD.ops.reorder('front'); };
+  extraKeys['shift+meta+['] = extraKeys['shift+meta+{'] = function () { SD.ops.reorder('back'); };
+  // 表示（拡大縮小）。データは変えない
+  extraKeys['meta+='] = extraKeys['meta++'] = extraKeys['shift+meta++'] = function () { SD.view.zoomAt(1.25); };
+  extraKeys['meta+-'] = function () { SD.view.zoomAt(0.8); };
+  extraKeys['meta+0'] = function () { SD.view.resetView(); };
+  Studio.keys({
+    undo: SD.undo, redo: SD.redo,          // ⌘Z / ⇧⌘Z
+    copy: function () { if (!SD.ops.copy()) doCopy(); },   // ⌘C: 選択があれば図形、無ければ SVG をコピー
+    cut: SD.ops.cut, paste: SD.paste.key, duplicate: SD.ops.duplicate,   // ⌘X ⌘V（図形が無ければ SVG） ⌘D
+    selectAll: SD.ops.selectAll,           // ⌘A
+    del: function () { SD.tools.deleteSelected(); },   // Delete
+    pan: function () {},                   // Space ドラッグで表示を動かす（動かす処理は tools/index.js）
+    extra: extraKeys,
+    escSteps: [                            // Esc: 色の小窓 → 描きかけ・選んだ点・選択 → 書き出し設定
+      sb.closeDialog,
+      function () { return SD.tools.escape(); },
+      function () {
+        if (!bar.el.classList.contains('opts-open')) return false;
+        bar.el.classList.remove('opts-open');
+        return true;
+      }
+    ]
+  });
+</script>
+<script>
+/* studio-apps: オフライン用の登録。https か localhost の時だけ動く */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; })
+    .then(function(){
+      console.info('studio-apps: オフライン準備完了');
+      if(navigator.storage && navigator.storage.persist){
+        navigator.storage.persist().then(function(ok){ console.info('studio-apps: 永続化 ' + (ok ? '許可' : '未許可')); });
+      }
+    })
+    .catch(function(err){ console.info('studio-apps: オフライン準備に失敗', err); });
+})();
+</script>
+</body>
+</html>

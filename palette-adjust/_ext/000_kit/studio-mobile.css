@@ -1,0 +1,438 @@
+@import url("studio-tokens.css");
+/* スマホ共通UI v2（2026-10-26）。クラスは ?m=1 のプレビューにも適用。通常の PC には適用しない。
+   文字の大きさ・太さ・色・線は studio-tokens.css の変数。スマホの指で読む大きさ（ラベル/値 15px・見出し 13px）だけこの下の --sm-fs-* で足す。11px 未満の文字は作らない。 */
+html.studio-mobile { --sm-top:48px; --sm-touch:56px; --sm-bar:calc(52px + env(safe-area-inset-bottom)); --sm-extra:0px; --sm-fs-label:15px; --sm-fs-val:15px; --sm-fs-head:13px; --sm-fs-small:11px; height:100%; overflow:hidden; }
+html.studio-mobile body { height:100%; overflow:hidden; }
+html.studio-mobile .sm-original { display:none!important; }
+html.studio-mobile .sm-bar-host { display:contents!important; }
+html.studio-mobile .sm-bar-host > :not(.sm-backdrop) { display:none!important; }
+html.studio-mobile:not(.sm-keep-main) #main { display:none; }   /* アダプタの hideSelectors に #main が無い画面（132）では消さない */
+html.studio-mobile .sm-root { position:fixed; inset:0; height:100dvh; display:flex; flex-direction:column; overflow:hidden; background:var(--t-paper); color:var(--t-ink); font:var(--t-w-label) var(--sm-fs-label)/1.4 var(--font); }
+html.studio-mobile .sm-root * { min-width:0; }
+html.studio-mobile .sm-root [hidden] { display:none!important; }
+html.studio-mobile .sm-gone { display:none!important; }
+html.studio-mobile .sm-root button { color:var(--t-ink); background:var(--t-paper); border:var(--t-line) solid var(--t-hair); border-radius:var(--t-radius); font:var(--t-w-btn) var(--sm-fs-label)/1.2 var(--font); cursor:pointer; touch-action:manipulation; }
+html.studio-mobile .sm-root button:disabled { opacity:.4; }
+html.studio-mobile * { -webkit-tap-highlight-color:transparent; }
+@media (max-width:700px) { html.studio-mobile .sm-root { width:100%; max-width:100vw; } }
+
+/* 版面 */
+html.studio-mobile .sm-view { position:relative; flex:1; min-height:0; overflow:hidden; background:var(--t-stage); touch-action:none; }
+html.studio-mobile .sm-view #stage { display:flex; width:100%; height:100%; padding:0; margin:0; overflow:visible; }
+html.studio-mobile .sm-view #board { width:100%; height:100%; max-width:none; max-height:none; }
+html.studio-mobile .sm-view.sm-scroll { touch-action:pan-x pan-y; }
+
+/* 下シート: 小（つまみ 28＋群見出し 32＋行 2 本 112＋帯 44＝216）／中（版面の高さが 370 になる高さ） */
+html.studio-mobile .sm-sheet { box-sizing:border-box; position:relative; z-index:3; flex:none; display:flex; flex-direction:column; border-top:var(--t-line) solid var(--t-hair); background:var(--t-paper); }
+html.studio-mobile .sm-sheet[data-level=small] { height:216px; }
+html.studio-mobile .sm-sheet[data-level=mid] { height:max(216px, calc(100dvh - 370px - var(--sm-bar) - var(--sm-extra))); }
+html.studio-mobile .sm-grip { position:relative; flex:none; height:28px; display:flex; align-items:center; justify-content:center; gap:var(--sp-xs, 8px); touch-action:none; cursor:grab; outline-offset:-2px; }
+html.studio-mobile .sm-grip::before { content:''; position:absolute; inset:-16px 0 0; }
+html.studio-mobile .sm-grip-bar { display:block; width:36px; height:4px; background:var(--t-ink); border-radius:2px; }
+html.studio-mobile .sm-grip-text { font:var(--t-w-head) var(--sm-fs-head)/1 var(--font); }
+html.studio-mobile .sm-rows { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
+html.studio-mobile .sm-spacer { flex:none; }
+html.studio-mobile .sm-grp-head { position:sticky; top:0; z-index:2; height:28px; flex:none; display:flex; align-items:center; margin-inline:calc(var(--t-grp-pad) * -1); padding-inline:var(--t-grp-pad); background:var(--t-paper); border-bottom:var(--t-line) solid var(--t-hair); font:var(--t-w-head) var(--sm-fs-head)/1 var(--font); box-sizing:border-box; }
+html.studio-mobile .sm-sheet[data-level=small] .sm-grp-head { position:static; }
+html.studio-mobile .sm-rows .sk-grp .sm-grp-head, html.studio-mobile .sm-rows .sm-grp .sm-grp-head { max-width:none; }
+/* 見出しの上下に余白を足さない（小のシートで先頭 2 行を見せる高さを確保する） */
+html.studio-mobile .sm-rows .sm-grp > .sm-grp-head { margin-block:0; }
+html.studio-mobile .sm-rows .sk-grp { padding:0 var(--t-grp-pad); border:0; margin:0; }
+html.studio-mobile .sm-rows .sk-grp .sk-grp { padding:0; }
+html.studio-mobile .sm-rows .sk-grp * { max-width:100%; box-sizing:border-box; }
+html.studio-mobile .sm-rows .sk-row { min-height:48px; display:flex; flex-direction:row; align-items:center; gap:var(--sp-xs, 8px); margin:0; border-bottom:var(--t-line) solid var(--t-hair); }
+html.studio-mobile .sm-rows .sk-row .sk-label, html.studio-mobile .sm-rows .sk-row > span, html.studio-mobile .sm-rows .sk-togglelabel { flex:1; font:var(--t-w-label) var(--sm-fs-label)/1.3 var(--font); }
+html.studio-mobile .sm-rows .sk-rowhead { flex:1; display:flex; align-items:center; justify-content:space-between; gap:var(--sp-xs, 8px); }
+html.studio-mobile .sm-rows .sk-num { min-width:72px; width:auto; height:48px; padding:0 var(--sp-xs, 8px); text-align:right; font:var(--t-w-num) 16px/1 var(--mono); }
+html.studio-mobile .sm-rows .sk-seg { display:flex; flex:1; flex-wrap:wrap; }
+html.studio-mobile .sm-rows .sk-seg button { flex:1 0 auto; min-width:48px; min-height:48px; padding-inline:var(--sp-2xs, 4px); }
+html.studio-mobile .sm-rows .sk-seg button.on { background:var(--t-ink); color:var(--t-paper); }
+html.studio-mobile .sm-rows .sk-btn, html.studio-mobile .sm-rows .sk-grp > .btn, html.studio-mobile .sm-rows .sk-grp button.btn { width:100%; min-height:48px; margin-block:var(--sp-xs, 8px); text-align:center; }
+html.studio-mobile .sm-rows .sk-selectrow select, html.studio-mobile .sm-rows select { min-height:48px; font:var(--t-w-label) 16px/1.2 var(--font); }
+/* select は WebKit で高さ指定が効かないので、見た目を自前にして 48px にする */
+html.studio-mobile .sm-root select, html.studio-mobile .cpop select { -webkit-appearance:none; appearance:none; height:48px; min-height:48px; padding:0 36px 0 var(--sp-s, 12px); border:var(--t-line) solid var(--t-ink); border-radius:var(--t-radius); color:var(--t-ink); background-color:var(--t-paper); background-image:linear-gradient(45deg, transparent 50%, var(--t-ink) 50%), linear-gradient(135deg, var(--t-ink) 50%, transparent 50%); background-position:calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size:6px 6px, 6px 6px; background-repeat:no-repeat; box-sizing:border-box; text-overflow:ellipsis; }
+html.studio-mobile .sm-rows .sk-selectrow select { flex:0 1 60%; }
+html.studio-mobile .sm-rows input[type=text], html.studio-mobile .sm-rows input:not([type]), html.studio-mobile .sm-rows input[type=number], html.studio-mobile .sm-rows input[type=color] { min-height:48px; }
+html.studio-mobile .sm-rows input[type=color] { min-width:56px; }
+html.studio-mobile .sm-rows .sk-none, html.studio-mobile .sm-rows .sk-mini { min-height:48px; min-width:48px; padding-inline:var(--sp-s, 12px); }
+html.studio-mobile .sm-rows textarea { display:block; width:100%; min-height:48px!important; resize:none; font:var(--t-w-num) 15px/1.3 var(--mono); }
+html.studio-mobile .sm-rows textarea:focus { min-height:120px!important; }
+html.studio-mobile .sm-rows kbd { display:none; }
+/* 押せる物は 44px 以上（行の中の ◀ ▶ ↺ 値は下の専用の高さ） */
+html.studio-mobile .sm-rows button:not(.sm-val):not(.sm-reset):not(.sm-stepbtn):not(.sm-neg) { min-height:44px; min-width:44px; padding-inline:var(--sp-s, 12px); flex-shrink:0; }
+html.studio-mobile .sm-rows input:not([type=checkbox]):not([type=range]):not([type=radio]) { min-height:44px; min-width:44px; }
+html.studio-mobile .sm-rows select { min-width:44px; }
+/* スイッチ（checkbox は 52×48 の押せる面に、細いスイッチを描く） */
+html.studio-mobile .sm-rows input[type=checkbox], html.studio-mobile .sm-menu input[type=checkbox] { -webkit-appearance:none; appearance:none; position:relative; flex:none; width:52px!important; height:48px!important; margin:0; padding:0; border:0; background:transparent; cursor:pointer; }
+html.studio-mobile .sm-rows input[type=checkbox]::before, html.studio-mobile .sm-menu input[type=checkbox]::before { content:''; position:absolute; left:2px; top:11px; width:48px; height:26px; box-sizing:border-box; border:var(--t-line) solid var(--t-ink); border-radius:13px; background:var(--t-paper); }
+html.studio-mobile .sm-rows input[type=checkbox]::after, html.studio-mobile .sm-menu input[type=checkbox]::after { content:''; position:absolute; left:7px; top:16px; width:16px; height:16px; border-radius:50%; background:var(--t-ink); }
+html.studio-mobile .sm-rows input[type=checkbox]:checked::before, html.studio-mobile .sm-menu input[type=checkbox]:checked::before { background:var(--t-ink); }
+html.studio-mobile .sm-rows input[type=checkbox]:checked::after, html.studio-mobile .sm-menu input[type=checkbox]:checked::after { left:31px; background:var(--t-paper); }
+
+/* 行: 上半分 24px＝ラベル／値／↺、下半分 32px＝◀ スライダー ▶ */
+html.studio-mobile .sm-rows .sm-range-row { display:block!important; flex:1 1 100%; width:100%; min-height:56px; padding:0; }
+html.studio-mobile .sm-rows :has(> .sm-range-row) { flex-wrap:wrap; }
+html.studio-mobile .sm-ui { display:block; width:100%; flex:1 1 100%; }
+html.studio-mobile .sm-ui-top { min-height:24px; display:flex; align-items:center; gap:0; }
+html.studio-mobile .sm-ui-bot { height:32px; display:flex; align-items:center; }
+html.studio-mobile .sm-lab { flex:1 1 0; overflow:hidden; white-space:normal; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; padding-block:2px; box-sizing:border-box; font:var(--t-w-label) var(--sm-fs-label)/20px var(--font); }
+html.studio-mobile .sm-root .sm-val { flex:none; min-width:48px; width:max-content; height:24px; padding:0 var(--sp-xs, 8px); border:0; background:transparent; text-align:right; white-space:nowrap; font:var(--t-w-num) var(--sm-fs-val)/24px var(--mono); }
+html.studio-mobile .sm-ui[data-drag] .sm-val { font-size:20px; font-weight:800; }
+html.studio-mobile .sm-root .sm-reset { flex:none; width:48px; height:24px; padding:0; border:0; background:transparent; font-size:18px; line-height:24px; }
+html.studio-mobile .sm-reset[data-on='0'] { opacity:.3; }
+html.studio-mobile .sm-root .sm-stepbtn { flex:none; width:48px; height:32px; padding:0; border:0; background:transparent; font-size:14px; line-height:32px; }
+html.studio-mobile .sm-root .sm-stepbtn:active, html.studio-mobile .sm-root .sm-reset:active, html.studio-mobile .sm-root .sm-val:active { background:var(--t-stage); }
+html.studio-mobile .sm-track { position:relative; flex:1; height:32px; touch-action:pan-y; cursor:pointer; --sm-pos:0; }
+html.studio-mobile .sm-track::before { content:''; position:absolute; left:14px; right:14px; top:15px; height:2px; background:var(--t-hair); }
+html.studio-mobile .sm-track::after { content:''; position:absolute; left:14px; top:15px; height:2px; width:calc(var(--sm-pos) * (100% - 28px)); background:var(--t-ink); }
+html.studio-mobile .sm-knob { position:absolute; top:2px; left:calc(var(--sm-pos) * (100% - 28px)); width:28px; height:28px; border-radius:50%; background:var(--t-ink); z-index:1; }
+html.studio-mobile .sm-ui[data-drag] .sm-knob { box-shadow:0 0 0 6px color-mix(in srgb, var(--t-ink) 18%, transparent); }
+html.studio-mobile .sm-ui[data-edit] .sm-ui-top { height:48px; }
+html.studio-mobile .sm-root .sm-valin { flex:none; width:104px; height:44px; box-sizing:border-box; padding:0 var(--sp-xs, 8px); text-align:right; border:var(--t-line) solid var(--t-ink); border-radius:var(--t-radius); background:var(--t-paper); color:var(--t-ink); font:var(--t-w-num) 16px/1 var(--mono); }
+html.studio-mobile .sm-root .sm-neg { flex:none; width:48px; height:44px; padding:0; font-size:20px; }
+
+/* 見出しへ飛ぶ帯（横スクロール・右端が薄くなって続きを示す） */
+html.studio-mobile .sm-tabs { flex:none; height:44px; border-top:var(--t-line) solid var(--t-hair); }
+html.studio-mobile .sm-tablist { height:100%; display:flex; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+/* 続きがある側だけ薄くする: 右＝末尾まで行ったら消す／左＝先頭でない間だけ */
+html.studio-mobile .sm-tablist[data-end='0'][data-start='0'], html.studio-mobile .sm-rail[data-end='0'][data-start='0'] { -webkit-mask-image:linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image:linear-gradient(to right, #000 calc(100% - 36px), transparent); }
+html.studio-mobile .sm-tablist[data-end='1'][data-start='1'], html.studio-mobile .sm-rail[data-end='1'][data-start='1'] { -webkit-mask-image:linear-gradient(to left, #000 calc(100% - 36px), transparent); mask-image:linear-gradient(to left, #000 calc(100% - 36px), transparent); }
+html.studio-mobile .sm-tablist[data-end='0'][data-start='1'], html.studio-mobile .sm-rail[data-end='0'][data-start='1'] { -webkit-mask-image:linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); mask-image:linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
+html.studio-mobile .sm-tablist::-webkit-scrollbar { display:none; }
+html.studio-mobile .sm-root .sm-tab { flex:none; min-width:56px; height:44px; max-width:160px; padding:0 var(--sp-s, 12px); border:0; border-right:var(--t-line) solid var(--t-hair); border-radius:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+html.studio-mobile .sm-root .sm-tab.sm-cur { background:var(--t-ink); color:var(--t-paper); }
+
+/* 色: 一覧の最初の群。色見本 48px ＋ 文字 */
+html.studio-mobile .sm-colorgrp .sm-colors { display:flex; flex-wrap:wrap; gap:var(--sp-s, 12px); padding:var(--sp-xs, 8px) 0; }
+html.studio-mobile .sm-swcell { display:flex; flex-direction:column; align-items:center; gap:var(--sp-2xs, 4px); min-width:56px; max-width:96px; }
+html.studio-mobile .sm-swcell:has(> .cswatch[hidden]), html.studio-mobile .sm-swcell:has(> .cswatch[style*='display: none']) { display:none; }
+html.studio-mobile .sm-colorgrp .cswatch { display:flex; align-items:stretch; width:48px; height:48px; padding:4px; box-sizing:border-box; }
+html.studio-mobile .sm-colorgrp .cswatch-fill { flex:1 1 auto; width:auto; height:auto; }
+html.studio-mobile .sm-swlab { max-width:100%; text-align:center; overflow-wrap:anywhere; font:var(--t-w-label) 13px/1.2 var(--font); }
+/* 色の小窓: シートの上端に接して下から出す。高さは版面の 1/2 まで（JS が --sm-cpop-bottom / --sm-cpop-max を入れる） */
+html.studio-mobile .cpop { position:fixed!important; left:0!important; right:0!important; top:auto!important; bottom:var(--sm-cpop-bottom, 216px)!important; transform:none; width:auto; max-height:var(--sm-cpop-max, 240px); overflow-y:auto; z-index:250; box-sizing:border-box; padding-top:0; }
+/* 色の小窓の背面: 透明の幕。幕へのタップは小窓を閉じるだけで、版面・一覧へ届かない（小窓 250 の 1 つ下） */
+html.studio-mobile .sm-cpop-backdrop { position:fixed; inset:0; z-index:249; pointer-events:auto; touch-action:none; background:transparent; }
+html.studio-mobile .sm-cpop-backdrop[hidden] { display:none!important; }
+html.studio-mobile .sm-cpop-head { position:sticky; top:0; z-index:1; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; height:49px; margin:0 calc(var(--sp-s, 12px) * -1) 0; padding-left:var(--sp-s, 12px); background:var(--t-paper); border-bottom:var(--t-line) solid var(--t-hair); }
+html.studio-mobile .sm-cpop-title { font:var(--t-w-name) 16px/1 var(--font); }
+html.studio-mobile .cpop-row { flex-wrap:wrap; }
+html.studio-mobile .cpop-row input[type=color] { width:56px; height:44px; flex:0 0 56px; }
+html.studio-mobile .cpop-hex { height:44px; min-width:96px; font-size:16px; }
+html.studio-mobile .cpop select { min-height:44px; font-size:16px; }
+html.studio-mobile .cpop .btn, html.studio-mobile .cpop-row > button { min-height:44px; min-width:48px; }
+html.studio-mobile .cpop-swatches { gap:var(--sp-xs, 8px); }
+html.studio-mobile .cpop-swatches button { width:44px; height:44px; }
+html.studio-mobile .cpop .sm-cpop-close { flex:none; height:48px; min-width:64px; padding:0 var(--sp-s, 12px); border:0; border-radius:0; color:var(--t-ink); background:transparent; font:var(--t-w-btn) var(--sm-fs-label)/1 var(--font); }
+
+/* 下帯 52px＋安全領域: ⋯／全部消す／取り消し／やり直し／SVG を書き出す（全部 48px・文字 14px・折り返さない） */
+html.studio-mobile .sm-bottom { position:relative; z-index:3; flex:none; display:flex; align-items:center; gap:4px; height:var(--sm-bar); padding:0 4px env(safe-area-inset-bottom); box-sizing:border-box; border-top:var(--t-line) solid var(--t-hair); background:var(--t-paper); overflow:hidden; }
+html.studio-mobile .sm-root .sm-bottom button { flex:1 1 0; min-width:60px; height:48px; padding:0 4px; font-size:14px; white-space:nowrap; }
+html.studio-mobile .sm-root .sm-bottom .sm-more { flex:none; width:48px; min-width:48px; padding:0; font-size:22px; line-height:1; }
+html.studio-mobile .sm-root .sm-bottom .sm-clear { min-width:80px; }
+html.studio-mobile .sm-root .sm-bottom .sm-clear[data-armed] { color:#fff; background:#B4342A; border-color:#B4342A; }
+html.studio-mobile .sm-root .sm-bottom .sm-save { flex:2 1 0; min-width:96px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; color:var(--t-paper); background:var(--t-ink); border-color:var(--t-ink); }
+html.studio-mobile .sm-root .sm-bottom .sm-save-lab { display:block; line-height:1.2; white-space:nowrap; }
+/* 「描く／動かす」: 版面の左上に浮かせる（48px・文字・白地・枠線・余白 8px。押した指は 2 本指の調停に数えない） */
+html.studio-mobile .sm-root .sm-view > .sm-mode { position:absolute; top:8px; left:8px; z-index:6; width:auto; min-width:64px; height:48px; padding:0 12px; font-size:14px; white-space:nowrap; color:var(--t-ink); background:#fff; border:var(--t-line) solid var(--t-hair); touch-action:manipulation; }
+html.studio-mobile .sm-root .sm-view > .sm-mode[aria-pressed=true] { color:var(--t-ink); background:#fff; }
+html.studio-mobile .sm-wait { display:block; font:var(--t-w-num) var(--sm-fs-small)/1.1 var(--font); white-space:nowrap; }
+
+/* ⋯ シート（下から・画面の 60% まで・外側タップで閉じる） */
+html.studio-mobile .sm-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:flex-end; background:color-mix(in srgb, var(--t-ink) 35%, transparent); }
+html.studio-mobile .sm-backdrop[hidden] { display:none!important; }
+html.studio-mobile .sm-menu { width:100%; max-height:60dvh; display:flex; flex-direction:column; background:var(--t-paper); padding-bottom:env(safe-area-inset-bottom); outline:0; }
+html.studio-mobile .sm-menu-head { flex:none; height:48px; margin:0; padding:0 var(--t-grp-pad); display:flex; align-items:center; border-bottom:var(--t-line) solid var(--t-hair); font:var(--t-w-name) 16px/1 var(--font); }
+html.studio-mobile .sm-menu-body { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:var(--sp-xs, 8px); padding:var(--sp-xs, 8px) var(--t-grp-pad) var(--t-grp-pad); }
+html.studio-mobile .sm-menu-body > * { width:100%; box-sizing:border-box; }
+html.studio-mobile .sm-menu-body button, html.studio-mobile .sm-menu-body input:not([type=checkbox]), html.studio-mobile .sm-menu-body select { min-height:48px; font:var(--t-w-btn) var(--sm-fs-label)/1.2 var(--font); }
+html.studio-mobile .sm-menu-body > button { display:flex; align-items:center; justify-content:flex-start; text-align:left; padding:0 var(--t-grp-pad); gap:var(--sp-xs, 8px); height:auto; }
+html.studio-mobile .sm-menu-body .btn-ico { display:none; }
+html.studio-mobile .sm-menu-body kbd { display:none; }
+html.studio-mobile .sm-menu-body .baropts { display:flex!important; flex-direction:column; align-items:stretch; gap:var(--sp-xs, 8px); }
+html.studio-mobile .sm-menu-body .baropts { width:100%; }
+html.studio-mobile .sm-menu-body .baropts input[type=text], html.studio-mobile .sm-menu-body .baropts input:not([type]), html.studio-mobile .sm-menu-body #memo { width:100%; box-sizing:border-box; padding:0 var(--sp-s, 12px)!important; text-align:left!important; border:var(--t-line) solid var(--t-ink)!important; border-radius:var(--t-radius)!important; background:var(--t-paper); color:var(--t-ink); font:var(--t-w-label) 16px/1.2 var(--font)!important; }
+html.studio-mobile .sm-menu-body .caprow span { font:inherit!important; }
+html.studio-mobile .sm-menu-body .caprow { display:flex; align-items:center; justify-content:space-between; width:100%; min-height:48px; flex-direction:row-reverse; font:var(--t-w-label) var(--sm-fs-label)/1.2 var(--font); }
+html.studio-mobile .sm-menu-body .cmn { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-xs, 8px); }
+html.studio-mobile .sm-menu-body .cmn > * { flex:1 1 auto; }
+html.studio-mobile .sm-menulab { flex:0 0 auto!important; font:var(--t-w-label) var(--sm-fs-label)/1.2 var(--font); }
+html.studio-mobile .sm-menu-body .cmn select { flex:1 1 40%; }
+html.studio-mobile .sm-menu-body .cmn button, html.studio-mobile .sm-menu-body .cmn .chip { min-width:48px; }
+html.studio-mobile .sm-menu-body .insta-toggle { justify-content:space-between!important; }
+html.studio-mobile .sm-menu-body .insta-toggle::after { content:''; flex:none; width:48px; height:26px; box-sizing:border-box; border:var(--t-line) solid var(--t-ink); border-radius:13px; background:radial-gradient(circle at 12px 50%, var(--t-ink) 8px, transparent 8.5px), var(--t-paper); }
+html.studio-mobile .sm-menu-body .insta-toggle[aria-pressed=true]::after { background:radial-gradient(circle at 34px 50%, var(--t-paper) 8px, transparent 8.5px), var(--t-ink); }
+html.studio-mobile .sm-insta-text { flex:1; }
+html.studio-mobile .sm-menu-body .sm-gh { justify-content:space-between!important; }
+html.studio-mobile .sm-gh-state { flex:none; color:var(--t-muted); font:var(--t-w-num) 13px/1.2 var(--font); }
+html.studio-mobile .sm-gh[data-state=on] .sm-gh-state { color:var(--t-ink); }
+html.studio-mobile .sm-menu-body .sm-proxy { text-align:left; }
+html.studio-mobile .sm-menu-body p.note { margin:0; font:var(--t-w-label) 13px/1.5 var(--font); }
+
+/* 通知: 画面上端から 12px・2 秒・ファイル名なし */
+html.studio-mobile #toast { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-xs, 8px); position:fixed; top:calc(12px + env(safe-area-inset-top)); bottom:auto; left:50%; right:auto; transform:translateX(-50%) translateY(-8px); z-index:400; width:max-content; max-width:calc(100% - var(--t-grp-pad) * 2); box-sizing:border-box; padding:var(--sp-s, 12px) var(--t-grp-pad); font:var(--t-w-label) var(--sm-fs-label)/1.4 var(--font); }
+html.studio-mobile #toast.on { transform:translateX(-50%) translateY(0); }
+html.studio-mobile #toast button, html.studio-mobile .sv-toast button { flex:1 1 40%; min-height:48px; padding-inline:var(--t-grp-pad); margin:0; font:var(--t-w-btn) var(--sm-fs-label)/1.2 var(--font); }
+html.studio-mobile #toast .sv-act { order:1; color:var(--t-ink); background:var(--t-paper); border:var(--t-line) solid var(--t-ink); border-radius:var(--t-radius); }
+html.studio-mobile #toast .toast-close { order:2; color:inherit; background:transparent; border:var(--t-line) solid currentColor; border-radius:var(--t-radius); }
+html.studio-mobile .sv-toast { position:fixed; left:var(--t-grp-pad); right:var(--t-grp-pad); top:calc(12px + env(safe-area-inset-top)); z-index:400; padding:var(--sp-s, 12px) var(--t-grp-pad); color:var(--t-paper); background:var(--t-ink); font:var(--t-w-label) var(--sm-fs-label)/1.4 var(--font); }
+html.studio-mobile .sv-toast[hidden] { display:none; }
+html.studio-mobile .sv-toast .sv-act { color:var(--t-ink); background:var(--t-paper); border:var(--t-line) solid var(--t-ink); border-radius:var(--t-radius); }
+
+/* GitHub につなぐ（画面中央の小窓） */
+html.studio-mobile .sv-backdrop { position:fixed; inset:0; z-index:300; touch-action:none; background:color-mix(in srgb, var(--t-ink) 35%, transparent); }
+html.studio-mobile .sv-modal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(358px, calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow-y:auto; box-sizing:border-box; z-index:301; display:flex; flex-direction:column; gap:var(--sp-xs, 8px); padding:var(--t-grp-pad); color:var(--t-ink); background:var(--t-paper); border:var(--t-line) solid var(--t-ink); font:var(--t-w-label) var(--sm-fs-label)/1.4 var(--font); }
+html.studio-mobile .sv-modal p { margin:0; }
+html.studio-mobile .sv-modal .sv-how { font-size:13px; font-weight:var(--t-w-name); color:var(--t-muted); }
+html.studio-mobile .sv-modal .sv-token { width:100%; box-sizing:border-box; min-height:48px; padding:0 var(--sp-s, 12px); font:var(--t-w-num) 16px/1.2 var(--mono); }
+html.studio-mobile .sv-modal .sv-row { display:flex; gap:var(--sp-xs, 8px); }
+html.studio-mobile .sv-modal button { flex:1; min-height:48px; color:var(--t-ink); background:var(--t-paper); border:var(--t-line) solid var(--t-hair); border-radius:var(--t-radius); font:var(--t-w-btn) var(--sm-fs-label)/1.2 var(--font); }
+html.studio-mobile .sv-modal .sv-ok { color:var(--t-paper); background:var(--t-ink); }
+
+/* 段3a: 157・160・159・136 の自前部品を共通の一覧に収める */
+html.studio-mobile .sm-view { position:relative; }
+html.studio-mobile .sm-view > .sm-overlay { position:absolute!important; inset:0!important; z-index:5; height:auto!important; }
+html.studio-mobile .sm-view .cand-bar, html.studio-mobile .sm-view .cand-foot { gap:var(--sp-xs) var(--t-grp-pad); }
+html.studio-mobile .sm-view .cand-grid { height:100%; width:auto; aspect-ratio:1/2; max-width:100%; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(4,minmax(0,1fr)); }
+html.studio-mobile .sm-view #stage { flex-direction:column; }
+html.studio-mobile .sm-view #stage > :not(#graphWrap):not(#depthGraphWrap):not(#errBar) { flex:1 1 0; min-height:0; width:100%; }
+html.studio-mobile .sm-view #stage > #graphWrap, html.studio-mobile .sm-view #stage > #depthGraphWrap { flex:none; height:72px; width:100%; }
+html.studio-mobile .sm-rows { overflow-x:hidden; }
+html.studio-mobile .sm-rows .sk-grp .sk-grp { padding:0; }
+html.studio-mobile .sm-rows .sk-grp * { max-width:100%; box-sizing:border-box; }
+html.studio-mobile .sm-rows input[type=text], html.studio-mobile .sm-rows input:not([type]), html.studio-mobile .sm-rows select { min-height:var(--sm-top); }
+html.studio-mobile .sm-rows .sk-grp > .btn, html.studio-mobile .sm-rows .sk-grp button.btn { min-height:var(--sm-top); }
+html.studio-mobile .sm-rows .sk-grp > .btn { width:100%; margin-block:var(--sp-xs); }
+/* 長い説明の文字（160「全部振る」の元の title 等）は折り返す */
+html.studio-mobile .sm-rows .sk-grp > .btn, html.studio-mobile .sm-rows .sk-grp > button.btn { white-space:normal; height:auto; padding-block:var(--sp-xs, 8px); line-height:1.4; text-align:left; justify-content:flex-start; }
+html.studio-mobile .sm-rows .sk-grp > :where(div:not(.sk-row)) { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-xs); margin-block:var(--sp-xs); }
+html.studio-mobile .sm-rows .sk-grp > :where(div:not(.sk-row)) > label { flex:1 0 100%; }
+html.studio-mobile .sm-rows .sk-grp > :where(div:not(.sk-row)) textarea { flex:1 0 100%; }
+html.studio-mobile .sm-rows .sk-anglerow { flex-direction:column; align-items:stretch; }
+html.studio-mobile .sm-rows .sk-angleband { width:100%; min-height:var(--sm-top); }
+html.studio-mobile .sm-rows .sk-angleband canvas { width:100%; height:100%; }
+html.studio-mobile .sm-rows .ov-row { min-height:44px; display:flex; align-items:center; gap:var(--sp-xs); }
+html.studio-mobile .sm-rows .ov-row-btn, html.studio-mobile .sm-rows #sideToggleBtn { min-width:44px; min-height:44px; }
+html.studio-mobile .sm-rows #sideWrap, html.studio-mobile .sm-rows #layerBody, html.studio-mobile .sm-rows #layerHead { display:flex; flex-direction:column; width:100%; position:static; height:auto; max-height:none; }
+html.studio-mobile .sm-rows #layerHead { flex-direction:row; align-items:center; justify-content:space-between; }
+html.studio-mobile .sm-rows #layerListCol, html.studio-mobile .sm-rows #layerSettingsCol { width:100%; flex:none; }
+html.studio-mobile .sm-rows .ov-list { max-height:none; }
+html.studio-mobile .sm-rows .sk-grp > .pre-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--sp-xs); }
+html.studio-mobile .sm-rows .sk-toggle { flex-wrap:wrap; }
+html.studio-mobile .sm-rows .pa-row { display:flex; flex-wrap:nowrap; }
+html.studio-mobile .sm-rows .pa-row .sk-btn { flex:1 1 0; width:auto; white-space:nowrap; margin:0; }
+html.studio-mobile .sm-rows .sk-grp > .btn, html.studio-mobile .sm-rows .sk-btn { text-align:center; }
+
+/* 段3b: 自前パネル（139・162）と上部バーの無い画面（122）。アダプタ表（studio-mobile.js）の印 html[data-sm-app] で絞る。 */
+html.studio-mobile .sm-view.sm-scroll { touch-action:pan-x pan-y; }
+html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) { padding:0 var(--t-grp-pad); border:0; margin:0; }
+html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) * { max-width:100%; box-sizing:border-box; }
+html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) .chips { display:flex; flex-wrap:wrap; gap:var(--sp-xs); margin-block:var(--sp-xs); }
+html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) .chip, html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) .btn { flex:1 1 auto; height:auto; min-height:var(--sm-top); padding-inline:var(--sp-s, 12px); white-space:normal; text-align:center; justify-content:center; }
+html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) .chip[aria-pressed=true], html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) .btn[aria-pressed=true], html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) .btn.primary, html.studio-mobile .sm-rows .vrow .btn.on { color:var(--t-paper); background:var(--t-ink); }
+html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) select, html.studio-mobile .sm-rows > .sm-grp:not(.sk-grp) input[type=text] { width:100%; min-height:var(--sm-top); }
+html.studio-mobile .sm-rows .sm-row:not(.sk-row) { margin:0; padding-block:var(--sp-xs); border-bottom:var(--t-line) solid var(--t-hair); }
+html.studio-mobile .sm-rows #info { padding:0; background:none; }
+/* 状態の文（139 の #info 等）: 幅 0 にならないよう、一覧の幅いっぱいの段落にする */
+html.studio-mobile .sm-rows .sm-extra, html.studio-mobile .sm-rows .sm-grp .sm-extra { display:block; width:100%; font-size:13px; line-height:1.5; }
+html.studio-mobile .sm-rows .sm-extra * { font-size:13px; }
+/* 160 の状態の文（ガイド: …・並べるもの: …）: 隣のボタンに押されて幅 0 になるので、一覧の幅いっぱいの 1 行目にする */
+html.studio-mobile .sm-rows .pasteSummaryRow { flex-wrap:wrap; }
+html.studio-mobile .sm-rows .pasteSummary { display:block; flex:1 0 100%; width:100%; white-space:normal; overflow:visible; text-overflow:clip; font-size:13px; line-height:1.5; color:var(--t-ink); }
+
+/* 139: 自前の 2 本指を使うので、版面は元ツールの canvas にそのまま渡す */
+html[data-sm-app=spline-draw].studio-mobile .sm-view #stage { position:relative; }
+
+/* 162: 元と案を版面の中で横にならべ、指で横にスクロールする */
+html[data-sm-app=palette-adjust].studio-mobile .sm-view #stage { overflow:hidden; padding:0; box-sizing:border-box; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-view #stage > #row { display:flex; gap:0; width:100%; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; overscroll-behavior-x:contain; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-view #stage > #row::-webkit-scrollbar { display:none; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-view #row > .cell { flex:0 0 100%; width:100%; min-width:0; height:100%; box-sizing:border-box; padding:var(--sp-xs, 8px) var(--sp-xs, 8px) 0; scroll-snap-align:start; scroll-snap-stop:always; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-view #row .cell-view { flex:1 1 0; min-height:0; aspect-ratio:auto; }
+/* 版面の下: 「1 / 4」（文字 32px の高さ）と ◀ ▶（48px） */
+html.studio-mobile .sm-pager { flex:none!important; width:100%!important; height:48px; display:flex; align-items:center; justify-content:space-between; gap:var(--sp-xs, 8px); padding:0 var(--sp-xs, 8px); box-sizing:border-box; background:var(--t-stage); }
+html.studio-mobile .sm-pager-pos { flex:1; height:32px; text-align:center; font:var(--t-w-num) 16px/32px var(--font); }
+html.studio-mobile .sm-root .sm-pager-btn { flex:none; width:48px; height:48px; padding:0; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .rng, html[data-sm-app=palette-adjust].studio-mobile .sm-rows .opt { grid-template-columns:none; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .rng > .tmp { display:none; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows textarea { height:var(--sm-touch); }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .crow { min-height:var(--sm-touch); grid-template-columns:44px 62px 1fr auto auto; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .crow input[type=checkbox] { width:var(--sp-xl, 24px); height:var(--sp-xl, 24px); }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .crow input.gname { height:var(--sm-top); }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .opt-check { min-height:var(--sm-top); }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .opt-check input { width:var(--sp-xl, 24px); height:var(--sp-xl, 24px); }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .btn { width:100%; min-height:var(--sm-top); justify-content:center; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .vrow { grid-template-columns:48px 56px 56px minmax(0,1fr); min-height:var(--sm-touch); }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .vrow .btn { width:auto; height:var(--sm-top); }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .vrow input.note { height:var(--sm-top); }
+
+/* 122: 上部バーが無い。版面（main.studio-stage）を版面の枠いっぱいに置く */
+html[data-sm-app=sphere-surface].studio-mobile .studio-app { display:none; }
+html[data-sm-app=sphere-surface].studio-mobile .sm-view .studio-stage { position:static; width:100%; height:100%; margin:0; padding:0; display:flex; align-items:center; justify-content:center; box-sizing:border-box; }
+html[data-sm-app=sphere-surface].studio-mobile .sm-view .studio-stage svg { width:100%; height:100%; max-width:100%; max-height:100%; }
+html[data-sm-app=sphere-surface].studio-mobile .note, html[data-sm-app=sphere-surface].studio-mobile .sm-menu .note { display:none!important; }
+
+/* 保存直後の「配色を検討」（studio-vault.js が通知に足す）を指で押せる大きさに */
+html[data-sm-app=sphere-surface].studio-mobile #toast { position:fixed; left:50%; transform:translateX(-50%); z-index:310; padding:var(--sp-xs, 8px) var(--t-grp-pad); color:var(--t-paper); background:var(--t-ink); font:var(--t-w-label) var(--sm-fs-label)/1.4 var(--font); opacity:0; pointer-events:none; }
+html[data-sm-app=sphere-surface].studio-mobile #toast.on { opacity:1; }
+html[data-sm-app=sphere-surface].studio-mobile #toast.sticky { pointer-events:auto; }
+html[data-sm-app=sphere-surface].studio-mobile #toast.err { background:#B4342A; color:#fff; }
+/* 122: 旧 kit（studio.css）には --font 等が無い。スマホ用 UI が使う値をこの画面だけに足す */
+html[data-sm-app=sphere-surface].studio-mobile { --font:"Noto Sans JP",-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; --sp-2xs:4px; --sp-xs:8px; --sp-s:12px; --sp-m:16px; --sp-l:20px; --sp-xl:24px; }
+html[data-sm-app=sphere-surface].studio-mobile .sm-view .studio-stage { border:0; border-radius:0; min-height:0; }
+html[data-sm-app=sphere-surface].studio-mobile .sm-rows .sk-num { width:4ch; height:auto; padding:0; border:0; background:none; font:var(--t-w-num) var(--t-fs-num)/1 var(--mono); color:var(--t-ink); }
+html[data-sm-app=sphere-surface].studio-mobile .sm-rows .sk-label { font:var(--t-w-label) var(--t-fs-label)/1.4 var(--font); color:var(--t-ink); }
+html[data-sm-app=sphere-surface].studio-mobile .sm-rows .sk-selectrow > span, html[data-sm-app=sphere-surface].studio-mobile .sm-rows .sk-checkrow > span { color:var(--t-ink); }
+html[data-sm-app=sphere-surface].studio-mobile .sm-rows .sk-selectrow > span { flex:none; min-width:0; }
+html[data-sm-app=sphere-surface].studio-mobile .sm-rows .sk-selectrow select { flex:1; min-height:var(--sm-top); }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .sm-grp .grp { padding:0; border:0; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows input[type=number] { padding-inline:var(--sp-xs); }
+/* 通知: 長いファイル名と「配色を検討」「閉じる」が並んでも、文が 1 文字ずつの縦書きにならないよう、文＋ボタンを流し込みにする */
+
+/* 段3c: 148 三角格子ロゴ（全部自前）。道具の列・数値欄の行・小窓を共通の一覧に収める */
+html[data-sm-app=tri-grid-logo].studio-mobile { --font:var(--font-ui); --mono:var(--font-mono); --sp-2xs:4px; --sp-xs:8px; --sp-s:12px; --sp-m:16px; --sp-l:20px; --sp-xl:24px; --sm-rail:48px; --sm-status:24px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .app { display:none!important; }
+/* 版面: 正方形の絵を、版面の枠に収まる最大の大きさで中央に置く */
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-view { container-type:size; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-view > main.canvas { position:static; display:flex; align-items:center; justify-content:center; width:100%; height:100%; padding:0; background:transparent; transform-origin:50% 50%; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-view .artboard { width:min(100cqw, 100cqh); height:min(100cqw, 100cqh); }
+/* 道具の列: 横 1 行・44px・横にスクロール。文字つき */
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rail { box-sizing:border-box; flex:none; height:var(--sm-rail); display:flex; flex-direction:row; align-items:center; gap:var(--sp-2xs); padding:0 var(--t-grp-pad); overflow-x:auto; overflow-y:hidden; border-top:var(--t-line) solid var(--t-hair); background:var(--t-paper); -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rail::-webkit-scrollbar { display:none; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rail .tool-hr { width:1px; height:24px; margin:0 var(--sp-2xs); flex:none; background:var(--t-hair); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rail .toolbtn { width:auto; height:calc(var(--sm-rail) - 4px); flex:none; flex-direction:row; gap:var(--sp-xs); padding:0 var(--sp-s); border:var(--t-line) solid var(--t-hair); border-radius:var(--t-radius); color:var(--t-ink); background:var(--t-paper); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rail .toolbtn svg { width:20px; height:20px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rail .toolbtn span { font:var(--t-w-btn) var(--t-fs-btn)/1 var(--font); letter-spacing:0; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rail .toolbtn.active { color:var(--t-paper); background:var(--t-ink); border-color:var(--t-ink); }
+/* 状態行: 下帯の上に 1 行（文字だけ） */
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-status { flex:none; height:var(--sm-status); display:flex; align-items:center; gap:0; padding:0 var(--t-grp-pad); overflow:hidden; white-space:nowrap; border-top:var(--t-line) solid var(--t-hair); background:var(--t-paper); font:var(--t-w-num) var(--t-fs-num)/1 var(--mono); color:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-status .sep { margin:0 var(--sp-xs); }
+/* 下シートの中身 */
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows > .sm-grp { display:flex; flex-direction:column; gap:var(--sp-xs); padding:var(--sp-xs) var(--t-grp-pad); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .panel-hr { display:none; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows > .sm-colorgrp { padding-block:0; gap:0; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .stepper { display:none; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .collapsible-body { padding-top:0; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .subfield-label, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .hint-line { font:var(--t-w-label) var(--t-fs-label)/1.4 var(--font); color:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .field-label { font:var(--t-w-label) var(--t-fs-label)/1.4 var(--font); color:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .sm-row { min-height:var(--sm-touch); display:flex; flex-direction:row; align-items:center; gap:var(--sp-xs); margin:0; padding-block:var(--sp-2xs); border-bottom:var(--t-line) solid var(--t-hair); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .sm-row .numfield { display:flex; align-items:center; gap:var(--sp-2xs); flex:none; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .sm-row.numfield { justify-content:flex-start; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .sm-range-row > .sm-label { flex:1; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows > .sm-grp .numfield input { width:72px; flex:none; height:var(--sm-top); padding-inline:var(--sp-xs); font:var(--t-w-num) 16px/1 var(--mono); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .numfield .unit { min-width:2.4em; font:var(--t-w-label) var(--t-fs-label)/1 var(--font); color:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .fill-weight-row .fw-label { width:auto; flex:1; font:var(--t-w-label) var(--t-fs-label)/1.4 var(--font); color:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .fill-weight-row .fw-val { width:3ch; font:var(--t-w-num) var(--t-fs-num)/1 var(--mono); color:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .segmented { flex-wrap:wrap; border-radius:var(--t-radius); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .segmented button { flex:1 1 auto; min-height:44px; padding:0 var(--sp-xs); font:var(--t-w-btn) var(--t-fs-btn)/1.2 var(--font); color:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .segmented button.active { color:var(--t-paper); background:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows select, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .palette-select { width:100%; min-height:44px; font-size:16px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .replace-row { flex-wrap:wrap; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .replace-row select { flex:1 1 30%; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .check-row { min-height:44px; gap:var(--sp-xs); font:var(--t-w-label) var(--t-fs-label)/1.4 var(--font); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows button.ghostbtn, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .addbtn, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .chip, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .swatch { min-height:44px; padding-inline:var(--sp-s); border:var(--t-line) solid var(--t-hair); border-radius:var(--t-radius); color:var(--t-ink); background:var(--t-paper); font:var(--t-w-btn) var(--t-fs-btn)/1.2 var(--font); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .swatch { width:44px; padding:0; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .chip { height:auto; border-radius:var(--t-radius); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .chip.active { color:var(--t-paper); background:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .field-row:has(> button) { flex-wrap:wrap; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .field-row > button { flex:1 1 auto; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .variant-head { min-height:44px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .ops-grid { grid-template-columns:repeat(5,minmax(0,1fr)); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .op-btn { min-height:48px; color:var(--t-ink); border:var(--t-line) solid var(--t-hair); border-radius:var(--t-radius); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows > .sm-grp .textfield, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows > .sm-grp input[type=text]:not(.numfield input) { width:100%; min-height:44px; font-size:16px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .memo-field textarea { min-height:var(--sm-touch); font-size:16px; }
+/* 候補: 触るだけで操作が見える（hover に頼らない）。戻す・削除を文字つきで常に出す */
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .variant-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .variant-thumb { aspect-ratio:auto; flex-direction:column; align-items:stretch; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .variant-thumb > svg { aspect-ratio:1; height:auto; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .variant-thumb .hover-actions { position:static; display:flex; background:transparent; gap:0; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .variant-thumb .hover-actions button { flex:1; width:auto; height:44px; font:var(--t-w-btn) var(--t-fs-btn)/1 var(--font); border-top:var(--t-line) solid var(--t-hair); color:var(--t-ink); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .variant-thumb .hover-actions button::after { content:' ' attr(title); }
+/* レイヤー: 行 44px 以上 */
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row { height:auto; min-height:48px; padding:0 var(--sp-xs); gap:var(--sp-xs); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row .layer-eye, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row .layer-lock, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row .layer-more { width:auto; min-width:48px; height:48px; min-height:44px; padding:0 var(--sp-2xs); border:0; background:transparent; color:inherit; display:inline-flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; font-size:16px; line-height:1; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row button svg { width:16px; height:16px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row .sm-btxt { display:block; white-space:nowrap; font:var(--t-w-btn) 12px/1 var(--font); }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row .layer-name, html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row .layer-lattice { font:var(--t-w-label) var(--t-fs-label)/1.2 var(--font); color:inherit; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-rows .layer-row .layer-name-input { height:var(--sm-top); font-size:16px; }
+/* 小窓（元の 7 つ）: 画面の幅に収め、親指の高さにする */
+html[data-sm-app=tri-grid-logo].studio-mobile .popover { left:var(--t-grp-pad)!important; right:var(--t-grp-pad)!important; top:calc(var(--sm-top) + var(--sp-xs))!important; bottom:auto!important; width:auto!important; max-width:none; max-height:calc(100dvh - var(--sm-top) - var(--sm-touch) - var(--sp-xl))!important; overflow-y:auto; overscroll-behavior:contain; box-sizing:border-box; font-size:16px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .menu-item, html[data-sm-app=tri-grid-logo].studio-mobile .popover .ghostbtn, html[data-sm-app=tri-grid-logo].studio-mobile .popover .primarybtn, html[data-sm-app=tri-grid-logo].studio-mobile .popover .colorpop-none, html[data-sm-app=tri-grid-logo].studio-mobile .popover .addbtn { min-height:44px; height:auto; font-size:14px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .segmented { flex-wrap:wrap; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .segmented button { min-height:44px; font-size:14px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .check-row { min-height:44px; font-size:14px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .numfield input { width:72px; height:44px; font-size:16px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .stepper button { width:44px; height:32px; font-size:13px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover input[type=checkbox] { width:24px; height:24px; flex:none; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover input[type=text], html[data-sm-app=tri-grid-logo].studio-mobile .popover select, html[data-sm-app=tri-grid-logo].studio-mobile .popover textarea { min-height:44px; font-size:16px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .hexrow input[type=text] { min-width:0; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover-actions { justify-content:stretch; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover-actions > button { flex:1 1 auto; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .palette-swatches button { width:44px; height:44px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .lattice-gallery { grid-template-columns:repeat(2,minmax(0,1fr)); }
+html[data-sm-app=tri-grid-logo].studio-mobile .latticecard { min-height:44px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .latticecard svg { width:100%; height:auto; aspect-ratio:1; }
+html[data-sm-app=tri-grid-logo].studio-mobile #shortcutsTable { font-size:14px; }
+html[data-sm-app=tri-grid-logo].studio-mobile .sm-menu .sm-proxy { text-align:left; padding-inline:var(--t-grp-pad); }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover > * { flex-shrink:0; }
+html[data-sm-app=tri-grid-logo].studio-mobile .popover .kbd { display:none; }
+
+/* 162: 案の seed 表示などツール側の小さい文字は 11px にそろえる */
+html.studio-mobile .sm-stage .seed { font-size:11px; }
+
+/* R3: SVG を貼る欄の「貼り付け」（クリップボードを読める時だけ JS が足す） */
+html.studio-mobile .sm-rows .sm-paste { flex:1 0 100%; width:100%; min-height:48px; margin-block:var(--sp-xs, 8px); }
+
+/* R4 I2: 線幅の抑揚は、シートが中の時だけ下の線幅グラフを隠す（版面を広く見せる）。小では出す */
+html[data-sm-app=stroke-swell].studio-mobile .sm-root[data-level=mid] #graphWrap, html[data-sm-app=stroke-swell].studio-mobile .sm-root[data-level=mid] #depthGraphWrap { display:none!important; }
+
+/* R4 I3: 正円接触パターン・グリッドパターンは、作品（紙）の外側にツールが 6% ずつ余白を持つ（SVG の viewBox の中・フレームの目印用）。
+   シートが小で、インスタ用の表示が OFF の時は、その余白の分だけ拡大して作品を版面の幅いっぱい（約 389px）にする */
+html[data-sm-app=circle-contact].studio-mobile body.insta-off .sm-root[data-level=small] #drawing, html[data-sm-app=grid-pattern].studio-mobile body.insta-off .sm-root[data-level=small] #drawing { transform:scale(1.12); }
+
+/* 小のシート（高さ 216）で、先頭の群の見出しと先頭 2 行が丸ごと見える高さに収める（行どうしの余白だけ詰める。行の高さ・押す大きさは変えない） */
+html[data-sm-app=sphere-surface].studio-mobile .sm-rows > .sm-grp { gap:0; }
+html[data-sm-app=sweep-along].studio-mobile .sm-rows .sm-grp-head + .btn { margin-block:0; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows > .sm-grp { gap:4px; }
+html[data-sm-app=palette-adjust].studio-mobile .sm-rows .sm-paste { margin-block:0; }
+
+/* R6（2026-10-27・実機 iPhone で描けない・点が動かない）: 版面の絵は指の既定動作（長押しの選択・拡大鏡・スクロール）を持たない */
+html.studio-mobile .sm-view:not(.sm-scroll) .sm-stage,
+html.studio-mobile .sm-view:not(.sm-scroll) .sm-stage :not(input):not(textarea):not(select) { touch-action:none; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+html.studio-mobile .sm-view { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+/* ⋯ の見出し下の版 */
+html.studio-mobile .sm-menu-ver { flex:none; margin:0; padding:var(--sp-2xs, 4px) var(--t-grp-pad); border-bottom:var(--t-line) solid var(--t-hair); color:var(--t-muted); font:var(--t-w-num) 13px/1.4 var(--font); font-variant-numeric:tabular-nums; }
+/* 操作の記録 */
+html.studio-mobile .sm-log-head { margin:var(--sp-xs, 8px) 0 0; color:var(--t-muted); font:var(--t-w-label) 13px/1.4 var(--font); }
+html.studio-mobile .sm-log { margin:0; padding:var(--sp-xs, 8px); max-height:240px; overflow:auto; border:var(--t-line) solid var(--t-hair); border-radius:var(--t-radius); background:var(--t-stage); color:var(--t-ink); font:400 11px/1.5 var(--mono, ui-monospace, monospace); white-space:pre-wrap; overflow-wrap:anywhere; -webkit-user-select:text; user-select:text; }
+/* 新しい版の帯（上端・押すと読み直す） */
+html.studio-mobile .sm-update { position:fixed; left:0; right:0; top:0; z-index:450; display:flex; align-items:center; gap:var(--sp-xs, 8px); box-sizing:border-box; padding:calc(var(--sp-xs, 8px) + env(safe-area-inset-top)) var(--t-grp-pad) var(--sp-xs, 8px); color:var(--t-paper); background:var(--t-ink); font:var(--t-w-label) var(--sm-fs-label)/1.4 var(--font); }
+html.studio-mobile .sm-update-text { flex:1; }
+html.studio-mobile .sm-update button { flex:none; min-width:72px; min-height:44px; padding:0 var(--t-grp-pad); border-radius:var(--t-radius); font:var(--t-w-btn) var(--sm-fs-label)/1.2 var(--font); cursor:pointer; touch-action:manipulation; }
+html.studio-mobile .sm-update .sm-update-go { color:var(--t-ink); background:var(--t-paper); border:var(--t-line) solid var(--t-paper); }
+html.studio-mobile .sm-update .sm-update-later { color:var(--t-paper); background:transparent; border:var(--t-line) solid var(--t-paper); }
+/* 全部消す: 1 度目の押しで「本当に全部消す」（3 秒で戻る） */
+
+/* R7（2026-10-28・持ち主「Bスプラインにも入れて」）: 132 Bスプライン。版面＝.stage（canvas#view＋基底関数 #paramCv＋再生バー #timeline）。
+   版面は下シートの上に置き、基底関数と再生バーは版面の下に元の高さのまま残す（シートが中の時だけ隠す）。右のパネルの 6 つのタブは全部の群を見せる */
+html[data-sm-app=bspline].studio-mobile .sm-view .stage { width:100%; height:100%; display:flex; flex-direction:column; }
+html[data-sm-app=bspline].studio-mobile .sm-view #canvasWrap { flex:1 1 0; min-height:0; }
+html[data-sm-app=bspline].studio-mobile .sm-root[data-level=mid] .stage > .param, html[data-sm-app=bspline].studio-mobile .sm-root[data-level=mid] .stage > .transport { display:none!important; }
+html[data-sm-app=bspline].studio-mobile .stage > .param, html[data-sm-app=bspline].studio-mobile .stage > .transport { flex:none; }
+html[data-sm-app=bspline].studio-mobile #minBtn { min-height:44px; min-width:44px; padding-inline:var(--sp-s, 12px); }
+html[data-sm-app=bspline].studio-mobile #play { width:44px; height:44px; flex:none; }
+html[data-sm-app=bspline].studio-mobile .sm-rows > .tabsec { display:block; padding:0 var(--t-grp-pad) var(--sp-m, 16px); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .ctl { margin-bottom:0; }
+html[data-sm-app=bspline].studio-mobile .sm-rows .fieldlabel { margin:var(--sp-xs, 8px) 0; font:var(--t-w-label) var(--sm-fs-label)/1.3 var(--font); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .tabsec h2 { margin:var(--sp-m, 16px) 0 var(--sp-xs, 8px); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .seg { margin-bottom:var(--sp-xs, 8px); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .seg button { height:auto; min-height:48px; border:0; border-right:var(--t-line) solid var(--t-ink); border-radius:0; background:var(--t-paper); color:var(--t-ink); font:var(--t-w-btn) var(--sm-fs-label)/1.2 var(--font); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .seg button:last-child { border-right:0; }
+html[data-sm-app=bspline].studio-mobile .sm-rows .seg button[aria-pressed=true] { background:var(--t-ink); color:var(--t-paper); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .switch { height:auto; min-height:48px; margin-bottom:var(--sp-xs, 8px); font:var(--t-w-btn) var(--sm-fs-label)/1.2 var(--font); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .btns { margin-block:var(--sp-xs, 8px); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .btns .btn { height:auto; min-height:48px; padding-inline:var(--sp-xs, 8px); }
+html[data-sm-app=bspline].studio-mobile .sm-rows .krow .stp button { min-width:44px; min-height:44px; }
+html[data-sm-app=bspline].studio-mobile .sm-rows .viewbar { flex-wrap:wrap; overflow:visible; padding:0; border:0; background:none; }
+html[data-sm-app=bspline].studio-mobile .sm-rows .sm-extra .chip { font-size:var(--sm-fs-label); }
+html[data-sm-app=bspline].studio-mobile .sm-rows > .tabsec > .sm-grp-head { max-width:none; }
